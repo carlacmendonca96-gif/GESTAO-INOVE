@@ -314,11 +314,11 @@ app.get("/api/despesas", async (req, res) => {
 });
 
 app.post("/api/despesas", async (req, res) => {
-  const { id, titulo, tipo, valor, data, notas } = req.body;
+  const { id, titulo, tipo, valor, data, notas, forma } = req.body;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO despesas (id, titulo, tipo, valor, data, notas) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [id, titulo, tipo, valor || 0, data, notas || null]
+      `INSERT INTO despesas (id, titulo, tipo, valor, data, notas, forma) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [id, titulo, tipo, valor || 0, data, notas || null, forma || null]
     );
     res.status(201).json(rows[0]);
   } catch (e) {
@@ -334,6 +334,7 @@ app.patch("/api/despesas/:id", async (req, res) => {
     valor: req.body.valor,
     data: req.body.data,
     notas: req.body.notas,
+    forma: req.body.forma,
   };
   const keys = Object.keys(fields).filter((k) => fields[k] !== undefined);
   if (keys.length === 0) return res.status(400).json({ error: "Nada para atualizar" });
