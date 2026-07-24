@@ -1,19 +1,19 @@
-const express = require("express");
+
 const cors = require("cors");
 const { Pool } = require("pg");
-
+ 
 const app = express();
 app.use(cors());
 app.use(express.json());
-
+ 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }, // necessário para conectar no Aiven
 });
-
+ 
 // ---------- healthcheck ----------
 app.get("/", (req, res) => res.send("API do Painel da Corretora no ar."));
-
+ 
 // ---------- ATENDIMENTOS ----------
 app.get("/api/atendimentos", async (req, res) => {
   try {
@@ -24,7 +24,7 @@ app.get("/api/atendimentos", async (req, res) => {
     res.status(500).json({ error: "Erro ao buscar atendimentos" });
   }
 });
-
+ 
 app.post("/api/atendimentos", async (req, res) => {
   const { id, cliente, categoria, subtipo, horarioSolicitado, dataAgendamento, horarioAgendamento, valor, pagamento, status, notas } = req.body;
   try {
@@ -39,13 +39,29 @@ app.post("/api/atendimentos", async (req, res) => {
     res.status(500).json({ error: "Erro ao criar atendimento" });
   }
 });
-
+ 
 app.patch("/api/atendimentos/:id", async (req, res) => {
-  const { status } = req.body;
+  const fields = {
+    cliente: req.body.cliente,
+    categoria: req.body.categoria,
+    subtipo: req.body.subtipo,
+    horario_solicitado: req.body.horarioSolicitado,
+    data_agendamento: req.body.dataAgendamento || null,
+    horario_agendamento: req.body.horarioAgendamento,
+    valor: req.body.valor != null ? req.body.valor : undefined,
+    pagamento: req.body.pagamento,
+    status: req.body.status,
+    notas: req.body.notas,
+  };
+  const keys = Object.keys(fields).filter((k) => fields[k] !== undefined);
+  if (keys.length === 0) return res.status(400).json({ error: "Nada para atualizar" });
+  const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
+  const values = keys.map((k) => fields[k]);
+  values.push(req.params.id);
   try {
     const { rows } = await pool.query(
-      "UPDATE atendimentos SET status = $1 WHERE id = $2 RETURNING *",
-      [status, req.params.id]
+      `UPDATE atendimentos SET ${setClause} WHERE id = $${values.length} RETURNING *`,
+      values
     );
     res.json(rows[0]);
   } catch (e) {
@@ -53,7 +69,7 @@ app.patch("/api/atendimentos/:id", async (req, res) => {
     res.status(500).json({ error: "Erro ao atualizar atendimento" });
   }
 });
-
+ 
 app.delete("/api/atendimentos/:id", async (req, res) => {
   try {
     await pool.query("DELETE FROM atendimentos WHERE id = $1", [req.params.id]);
@@ -63,7 +79,7 @@ app.delete("/api/atendimentos/:id", async (req, res) => {
     res.status(500).json({ error: "Erro ao excluir atendimento" });
   }
 });
-
+ 
 // ---------- AGENDAMENTOS ----------
 app.get("/api/agendamentos", async (req, res) => {
   try {
@@ -74,7 +90,7 @@ app.get("/api/agendamentos", async (req, res) => {
     res.status(500).json({ error: "Erro ao buscar agendamentos" });
   }
 });
-
+ 
 app.post("/api/agendamentos", async (req, res) => {
   const { id, cliente, categoria, subtipo, data, horario, notas, atendimentoId } = req.body;
   try {
@@ -89,7 +105,33 @@ app.post("/api/agendamentos", async (req, res) => {
     res.status(500).json({ error: "Erro ao criar agendamento" });
   }
 });
-
+ 
+app.patch("/api/agendamentos/:id", async (req, res) => {
+  const fields = {
+    cliente: req.body.cliente,
+    categoria: req.body.categoria,
+    subtipo: req.body.subtipo,
+    data: req.body.data,
+    horario: req.body.horario,
+    notas: req.body.notas,
+  };
+  const keys = Object.keys(fields).filter((k) => fields[k] !== undefined);
+  if (keys.length === 0) return res.status(400).json({ error: "Nada para atualizar" });
+  const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
+  const values = keys.map((k) => fields[k]);
+  values.push(req.params.id);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE agendamentos SET ${setClause} WHERE id = $${values.length} RETURNING *`,
+      values
+    );
+    res.json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao atualizar agendamento" });
+  }
+});
+ 
 app.delete("/api/agendamentos/:id", async (req, res) => {
   try {
     await pool.query("DELETE FROM agendamentos WHERE id = $1", [req.params.id]);
@@ -99,7 +141,7 @@ app.delete("/api/agendamentos/:id", async (req, res) => {
     res.status(500).json({ error: "Erro ao excluir agendamento" });
   }
 });
-
+ 
 // ---------- FINANCEIRO ----------
 app.get("/api/financeiro", async (req, res) => {
   try {
@@ -110,14 +152,14 @@ app.get("/api/financeiro", async (req, res) => {
     res.status(500).json({ error: "Erro ao buscar lançamentos" });
   }
 });
-
+ 
 app.post("/api/financeiro", async (req, res) => {
-  const { id, cliente, categoria, subtipo, valorPago, custo, forma, data, pago } = req.body;
+  const { id, cliente, categoria, subtipo, valorPago, custo, forma, data, pago, atendimentoId } = req.body;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO financeiro (id, cliente, categoria, subtipo, valor_pago, custo, forma, data, pago)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [id, cliente, categoria, subtipo, valorPago || 0, custo || 0, forma || null, data, pago !== false]
+      `INSERT INTO financeiro (id, cliente, categoria, subtipo, valor_pago, custo, forma, data, pago, atendimento_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [id, cliente, categoria, subtipo, valorPago || 0, custo || 0, forma || null, data, pago !== false, atendimentoId || null]
     );
     res.status(201).json(rows[0]);
   } catch (e) {
@@ -125,13 +167,27 @@ app.post("/api/financeiro", async (req, res) => {
     res.status(500).json({ error: "Erro ao criar lançamento" });
   }
 });
-
+ 
 app.patch("/api/financeiro/:id", async (req, res) => {
-  const { pago } = req.body;
+  const fields = {
+    cliente: req.body.cliente,
+    categoria: req.body.categoria,
+    subtipo: req.body.subtipo,
+    valor_pago: req.body.valorPago,
+    custo: req.body.custo,
+    forma: req.body.forma,
+    data: req.body.data,
+    pago: req.body.pago,
+  };
+  const keys = Object.keys(fields).filter((k) => fields[k] !== undefined);
+  if (keys.length === 0) return res.status(400).json({ error: "Nada para atualizar" });
+  const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
+  const values = keys.map((k) => fields[k]);
+  values.push(req.params.id);
   try {
     const { rows } = await pool.query(
-      "UPDATE financeiro SET pago = $1 WHERE id = $2 RETURNING *",
-      [pago !== false, req.params.id]
+      `UPDATE financeiro SET ${setClause} WHERE id = $${values.length} RETURNING *`,
+      values
     );
     res.json(rows[0]);
   } catch (e) {
@@ -139,7 +195,7 @@ app.patch("/api/financeiro/:id", async (req, res) => {
     res.status(500).json({ error: "Erro ao atualizar lançamento" });
   }
 });
-
+ 
 app.delete("/api/financeiro/:id", async (req, res) => {
   try {
     await pool.query("DELETE FROM financeiro WHERE id = $1", [req.params.id]);
@@ -149,6 +205,7 @@ app.delete("/api/financeiro/:id", async (req, res) => {
     res.status(500).json({ error: "Erro ao excluir lançamento" });
   }
 });
-
+ 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`API rodando na porta ${PORT}`));
+ 
