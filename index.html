@@ -1617,7 +1617,10 @@ function ProximosVencimentos({ clientes }) {
           {seguros.map((c) => (
             <div key={c.id} className="flex items-center justify-between text-xs py-0.5">
               <span style={{ color: COLORS.ink }}>{c.nome}</span>
-              <span className="font-semibold" style={{ color: COLORS.red }}>{c.dias}d</span>
+              <span className="text-right">
+                <span className="font-semibold" style={{ color: COLORS.red }}>{c.dias}d</span>
+                <span style={{ color: COLORS.inkSoft }}> · {fmtDatePt(c.venc.toISOString().slice(0, 10))}</span>
+              </span>
             </div>
           ))}
         </div>
@@ -1628,7 +1631,10 @@ function ProximosVencimentos({ clientes }) {
           {certificados.map((c) => (
             <div key={c.id} className="flex items-center justify-between text-xs py-0.5">
               <span style={{ color: COLORS.ink }}>{c.nome}</span>
-              <span className="font-semibold" style={{ color: COLORS.red }}>{c.dias}d</span>
+              <span className="text-right">
+                <span className="font-semibold" style={{ color: COLORS.red }}>{c.dias}d</span>
+                <span style={{ color: COLORS.inkSoft }}> · {fmtDatePt(c.venc.toISOString().slice(0, 10))}</span>
+              </span>
             </div>
           ))}
         </div>
