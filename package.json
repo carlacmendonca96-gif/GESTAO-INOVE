@@ -1,0 +1,14 @@
+{
+  "name": "backend-corretora",
+  "version": "1.0.0",
+  "description": "API do Painel da Corretora - conecta o painel ao banco PostgreSQL no Aiven",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "pg": "^8.11.5"
+  }
+}
