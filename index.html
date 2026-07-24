@@ -83,6 +83,7 @@ const Repeat = (p) => <Svg {...p}><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4
 const Landmark = (p) => <Svg {...p}><line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 21 7 3 7"/></Svg>;
 const Users = (p) => <Svg {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></Svg>;
 const Bell = (p) => <Svg {...p}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></Svg>;
+const Filter = (p) => <Svg {...p}><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></Svg>;
 
 // ====== DADOS FIXOS ======
 const STATUSES = [
@@ -498,27 +499,93 @@ function AtendimentoCard({ item, onMove, onDelete, onEdit }) {
 function KanbanBoard({ atendimentos, onAdd, onMove, onDelete, onEdit, clientes }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
+  const [showFiltros, setShowFiltros] = useState(false);
+  const [fCategoria, setFCategoria] = useState(null);
+  const [fSubtipo, setFSubtipo] = useState(null);
+  const [fNome, setFNome] = useState("");
+  const [fData, setFData] = useState("");
+  const [fMesAno, setFMesAno] = useState("");
   const today = todayStr();
   const hojeCount = atendimentos.filter((a) => (a.criadoEm || "").slice(0, 10) === today).length;
+
+  let filtrados = atendimentos;
+  if (fCategoria) filtrados = filtrados.filter((a) => a.categoria === fCategoria);
+  if (fSubtipo) filtrados = filtrados.filter((a) => a.subtipo === fSubtipo);
+  if (fNome.trim()) filtrados = filtrados.filter((a) => a.cliente.toLowerCase().includes(fNome.trim().toLowerCase()));
+  if (fData) filtrados = filtrados.filter((a) => (a.criadoEm || "").slice(0, 10) === fData);
+  if (fMesAno) filtrados = filtrados.filter((a) => (a.criadoEm || "").slice(0, 7) === fMesAno);
+
+  const filtrosAtivos = [fCategoria, fSubtipo, fNome.trim(), fData, fMesAno].filter(Boolean).length;
+  const limparFiltros = () => { setFCategoria(null); setFSubtipo(null); setFNome(""); setFData(""); setFMesAno(""); };
 
   return (
     <div>
       <ProximosVencimentos clientes={clientes} />
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-3">
         <div>
           <h2 className="text-lg font-semibold" style={{ color: COLORS.ink, fontFamily: "Georgia, serif" }}>Atendimentos</h2>
-          <p className="text-xs" style={{ color: COLORS.inkSoft }}>{hojeCount} recebido(s) hoje · {atendimentos.length} no total</p>
+          <p className="text-xs" style={{ color: COLORS.inkSoft }}>{hojeCount} recebido(s) hoje · {filtrados.length} de {atendimentos.length}</p>
         </div>
-        <button onClick={() => setShowAdd(true)}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium"
-                style={{ backgroundColor: COLORS.burgundy, color: "#fff" }}>
-          <Plus size={16} color="#fff" /> Novo
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowFiltros((v) => !v)}
+                  className="relative flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium"
+                  style={{ backgroundColor: showFiltros ? COLORS.burgundy : COLORS.burgundy + "14", color: showFiltros ? "#fff" : COLORS.burgundy }}>
+            <Filter size={15} color={showFiltros ? "#fff" : COLORS.burgundy} /> Filtros
+            {filtrosAtivos > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-bold"
+                    style={{ backgroundColor: COLORS.red, color: "#fff" }}>{filtrosAtivos}</span>
+            )}
+          </button>
+          <button onClick={() => setShowAdd(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium"
+                  style={{ backgroundColor: COLORS.burgundy, color: "#fff" }}>
+            <Plus size={16} color="#fff" /> Novo
+          </button>
+        </div>
       </div>
+
+      {showFiltros && (
+        <div className="rounded-2xl p-3 mb-4" style={{ backgroundColor: COLORS.panel, border: `1px solid ${COLORS.line}` }}>
+          <Field label="Categoria">
+            <div className="flex gap-2">
+              <Toggle ativo={fCategoria === null} cor={COLORS.inkSoft} onClick={() => { setFCategoria(null); setFSubtipo(null); }}>Todos</Toggle>
+              {CATEGORIAS.map((c) => (
+                <Toggle key={c.key} ativo={fCategoria === c.key} cor={c.color}
+                        onClick={() => { setFCategoria(c.key); setFSubtipo(null); }}>{c.label}</Toggle>
+              ))}
+            </div>
+          </Field>
+          {fCategoria && (
+            <Field label={fCategoria === "seguro" ? "Qual seguro?" : "Qual certificado?"}>
+              <select style={inputStyle} value={fSubtipo || ""} onChange={(e) => setFSubtipo(e.target.value || null)}>
+                <option value="">Todos</option>
+                {SUBTIPOS[fCategoria].map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+              </select>
+            </Field>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Nome do cliente">
+              <input style={inputStyle} value={fNome} onChange={(e) => setFNome(e.target.value)} placeholder="Buscar..." />
+            </Field>
+            <Field label="Mês e ano">
+              <input type="month" style={inputStyle} value={fMesAno} onChange={(e) => setFMesAno(e.target.value)} />
+            </Field>
+          </div>
+          <Field label="Data exata da solicitação (opcional)">
+            <input type="date" style={inputStyle} value={fData} onChange={(e) => setFData(e.target.value)} />
+          </Field>
+          {filtrosAtivos > 0 && (
+            <button onClick={limparFiltros} className="flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg"
+                    style={{ backgroundColor: "#F2ECE2", color: COLORS.inkSoft }}>
+              <X size={12} color={COLORS.inkSoft} /> Limpar filtros
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="flex gap-3 overflow-x-auto pb-3">
         {STATUSES.map((s) => {
-          const items = atendimentos.filter((a) => a.status === s.key);
+          const items = filtrados.filter((a) => a.status === s.key);
           return (
             <div key={s.key} className="flex-shrink-0" style={{ width: 250 }}>
               <div className="flex items-center gap-2 mb-2 px-1">
