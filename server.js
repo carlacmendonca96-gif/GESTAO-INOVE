@@ -26,12 +26,12 @@ app.get("/api/atendimentos", async (req, res) => {
 });
 
 app.post("/api/atendimentos", async (req, res) => {
-  const { id, cliente, categoria, subtipo, horarioSolicitado, dataAgendamento, horarioAgendamento, status, notas } = req.body;
+  const { id, cliente, categoria, subtipo, horarioSolicitado, dataAgendamento, horarioAgendamento, valor, pagamento, status, notas } = req.body;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO atendimentos (id, cliente, categoria, subtipo, horario_solicitado, data_agendamento, horario_agendamento, status, notas)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [id, cliente, categoria, subtipo, horarioSolicitado || null, dataAgendamento || null, horarioAgendamento || null, status || "iniciado", notas || null]
+      `INSERT INTO atendimentos (id, cliente, categoria, subtipo, horario_solicitado, data_agendamento, horario_agendamento, valor, pagamento, status, notas)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      [id, cliente, categoria, subtipo, horarioSolicitado || null, dataAgendamento || null, horarioAgendamento || null, valor != null ? valor : null, pagamento || null, status || "iniciado", notas || null]
     );
     res.status(201).json(rows[0]);
   } catch (e) {
@@ -112,17 +112,31 @@ app.get("/api/financeiro", async (req, res) => {
 });
 
 app.post("/api/financeiro", async (req, res) => {
-  const { id, cliente, categoria, subtipo, valorPago, custo, forma, data } = req.body;
+  const { id, cliente, categoria, subtipo, valorPago, custo, forma, data, pago } = req.body;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO financeiro (id, cliente, categoria, subtipo, valor_pago, custo, forma, data)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [id, cliente, categoria, subtipo, valorPago || 0, custo || 0, forma, data]
+      `INSERT INTO financeiro (id, cliente, categoria, subtipo, valor_pago, custo, forma, data, pago)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [id, cliente, categoria, subtipo, valorPago || 0, custo || 0, forma || null, data, pago !== false]
     );
     res.status(201).json(rows[0]);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Erro ao criar lançamento" });
+  }
+});
+
+app.patch("/api/financeiro/:id", async (req, res) => {
+  const { pago } = req.body;
+  try {
+    const { rows } = await pool.query(
+      "UPDATE financeiro SET pago = $1 WHERE id = $2 RETURNING *",
+      [pago !== false, req.params.id]
+    );
+    res.json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao atualizar lançamento" });
   }
 });
 
