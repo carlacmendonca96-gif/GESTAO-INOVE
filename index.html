@@ -81,6 +81,8 @@ const CreditCard = (p) => <Svg {...p}><rect width="20" height="14" x="2" y="5" r
 const Receipt = (p) => <Svg {...p}><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 10h8"/><path d="M8 14h6"/></Svg>;
 const Repeat = (p) => <Svg {...p}><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></Svg>;
 const Landmark = (p) => <Svg {...p}><line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 21 7 3 7"/></Svg>;
+const Users = (p) => <Svg {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></Svg>;
+const Bell = (p) => <Svg {...p}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></Svg>;
 
 // ====== DADOS FIXOS ======
 const STATUSES = [
@@ -142,6 +144,14 @@ function parcelaInfo(compra, refMk) {
   const offset = (ry - iy) * 12 + (rm - im);
   if (offset < 0 || offset >= compra.parcelas) return null;
   return offset + 1;
+}
+function proximoVencimento(dataInicioStr) {
+  const [y, m, d] = dataInicioStr.split("-").map(Number);
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  let venc = new Date(hoje.getFullYear(), m - 1, d);
+  if (venc < hoje) venc = new Date(hoje.getFullYear() + 1, m - 1, d);
+  const dias = Math.round((venc - hoje) / 86400000);
+  return { venc, dias };
 }
 function categoriaInfo(k) { return CATEGORIAS.find((c) => c.key === k) || CATEGORIAS[0]; }
 function subtipoLabel(cat, sub) {
@@ -217,6 +227,13 @@ function mapCompraCartao(row) {
     valorParcela: parseFloat(row.valor_parcela) || 0,
     dataCompra: row.data_compra ? String(row.data_compra).slice(0, 10) : "",
     parcelas: row.parcelas || 1, notas: row.notas || "",
+  };
+}
+function mapCliente(row) {
+  return {
+    id: row.id, nome: row.nome, categoria: row.categoria, subtipo: row.subtipo,
+    dataInicio: row.data_inicio ? String(row.data_inicio).slice(0, 10) : "",
+    notas: row.notas || "", atendimentoId: row.atendimento_id,
   };
 }
 
@@ -477,7 +494,7 @@ function AtendimentoCard({ item, onMove, onDelete, onEdit }) {
   );
 }
 
-function KanbanBoard({ atendimentos, onAdd, onMove, onDelete, onEdit }) {
+function KanbanBoard({ atendimentos, onAdd, onMove, onDelete, onEdit, clientes }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const today = todayStr();
@@ -485,6 +502,7 @@ function KanbanBoard({ atendimentos, onAdd, onMove, onDelete, onEdit }) {
 
   return (
     <div>
+      <ProximosVencimentos clientes={clientes} />
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-lg font-semibold" style={{ color: COLORS.ink, fontFamily: "Georgia, serif" }}>Atendimentos</h2>
@@ -1270,6 +1288,180 @@ function FinanceView({ financeiro, onAddFinanceiro, onEditFinanceiro, onDeleteFi
   );
 }
 
+// ====== CLIENTES ======
+function VencimentoBadge({ dataInicio }) {
+  const { dias } = proximoVencimento(dataInicio);
+  const urgente = dias <= 30;
+  const cor = urgente ? COLORS.red : COLORS.green;
+  return (
+    <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold" style={{ backgroundColor: cor + "1A", color: cor }}>
+      {urgente ? `Renova em ${dias}d` : `Renova em ${dias}d`}
+    </span>
+  );
+}
+
+function ClienteForm({ item, categoriaFixa, onSubmit, submitLabel }) {
+  const [nome, setNome] = useState(item ? item.nome : "");
+  const [categoria, setCategoria] = useState(item ? item.categoria : (categoriaFixa || "seguro"));
+  const [subtipo, setSubtipo] = useState(item ? item.subtipo : SUBTIPOS[categoriaFixa || "seguro"][0].key);
+  const [dataInicio, setDataInicio] = useState(item ? item.dataInicio : todayStr());
+  const [notas, setNotas] = useState(item ? item.notas : "");
+
+  const submit = () => {
+    if (!nome.trim()) return;
+    onSubmit({ nome: nome.trim(), categoria, subtipo, dataInicio, notas: notas.trim() });
+  };
+
+  return (
+    <React.Fragment>
+      <Field label="Cliente">
+        <input style={inputStyle} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome do cliente" autoFocus />
+      </Field>
+      <CategoriaSubtipoPicker categoria={categoria} setCategoria={setCategoria} subtipo={subtipo} setSubtipo={setSubtipo} />
+      <Field label="Data de início (venda / emissão)">
+        <input type="date" style={inputStyle} value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
+      </Field>
+      <p className="text-[11px] mb-3" style={{ color: COLORS.inkSoft }}>
+        A renovação é calculada 1 ano após essa data, e você recebe um aviso 30 dias antes.
+      </p>
+      <Field label="Observações">
+        <textarea style={{ ...inputStyle, minHeight: 50, resize: "vertical" }} value={notas} onChange={(e) => setNotas(e.target.value)} />
+      </Field>
+      <PrimaryButton onClick={submit}>{submitLabel}</PrimaryButton>
+    </React.Fragment>
+  );
+}
+
+function AddClienteModal({ categoriaFixa, onClose, onSave }) {
+  return (
+    <Modal title="Novo cliente" onClose={onClose}>
+      <ClienteForm categoriaFixa={categoriaFixa} submitLabel="Salvar cliente" onSubmit={(data) => { onSave({ id: uid(), ...data }); onClose(); }} />
+    </Modal>
+  );
+}
+
+function EditClienteModal({ item, onClose, onSave }) {
+  return (
+    <Modal title="Editar cliente" onClose={onClose}>
+      <ClienteForm item={item} submitLabel="Salvar alterações" onSubmit={(data) => { onSave({ ...item, ...data }); onClose(); }} />
+    </Modal>
+  );
+}
+
+function ClientesView({ clientes, onAdd, onEdit, onDelete }) {
+  const [subTab, setSubTab] = useState("certificado");
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
+
+  const lista = clientes.filter((c) => c.categoria === subTab)
+    .map((c) => ({ ...c, ...proximoVencimento(c.dataInicio) }))
+    .sort((a, b) => a.dias - b.dias);
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold mb-3" style={{ color: COLORS.ink, fontFamily: "Georgia, serif" }}>Gestão de Clientes</h2>
+
+      <div className="flex gap-1 p-1 rounded-xl mb-4" style={{ backgroundColor: COLORS.burgundy }}>
+        <button onClick={() => setSubTab("certificado")} className="flex-1 py-2 rounded-lg text-xs font-semibold"
+                style={{ backgroundColor: subTab === "certificado" ? "#fff" : "transparent",
+                         color: subTab === "certificado" ? COLORS.burgundy : "rgba(255,255,255,0.75)" }}>
+          Clientes Certificados
+        </button>
+        <button onClick={() => setSubTab("seguro")} className="flex-1 py-2 rounded-lg text-xs font-semibold"
+                style={{ backgroundColor: subTab === "seguro" ? "#fff" : "transparent",
+                         color: subTab === "seguro" ? COLORS.burgundy : "rgba(255,255,255,0.75)" }}>
+          Clientes Seguros
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs" style={{ color: COLORS.inkSoft }}>{lista.length} cliente(s)</p>
+        <button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium"
+                style={{ backgroundColor: COLORS.burgundy, color: "#fff" }}>
+          <Plus size={16} color="#fff" /> Novo cliente
+        </button>
+      </div>
+
+      {lista.length === 0 && (
+        <p className="text-sm py-6 text-center rounded-xl" style={{ color: COLORS.inkSoft, backgroundColor: "#F2ECE2" }}>Nenhum cliente cadastrado aqui</p>
+      )}
+      <div className="space-y-2">
+        {lista.map((c) => (
+          <div key={c.id} className="rounded-xl p-3" style={{ backgroundColor: COLORS.panel, border: `1px solid ${COLORS.line}` }}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold truncate" style={{ color: COLORS.ink }}>{c.nome}</div>
+                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                  <Stamp categoria={c.categoria} subtipo={c.subtipo} />
+                  <VencimentoBadge dataInicio={c.dataInicio} />
+                </div>
+                {c.notas && <p className="text-xs mt-1" style={{ color: COLORS.inkSoft }}>{c.notas}</p>}
+              </div>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <button onClick={() => setEditingItem(c)} className="p-1.5 rounded-lg hover:bg-black/5" title="Editar">
+                  <PenLine size={13} color={COLORS.inkSoft} />
+                </button>
+                <button onClick={() => onDelete(c.id)} className="p-1.5 rounded-lg hover:bg-black/5" title="Excluir">
+                  <Trash2 size={14} color={COLORS.inkSoft} />
+                </button>
+              </div>
+            </div>
+            <div className="text-[11px] mt-2 pt-2" style={{ borderTop: `1px dashed ${COLORS.line}`, color: COLORS.inkSoft }}>
+              Início: {fmtDatePt(c.dataInicio)} · Próxima renovação: {fmtDatePt(c.venc.toISOString().slice(0, 10))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {showAdd && <AddClienteModal categoriaFixa={subTab} onClose={() => setShowAdd(false)} onSave={onAdd} />}
+      {editingItem && <EditClienteModal item={editingItem} onClose={() => setEditingItem(null)} onSave={onEdit} />}
+    </div>
+  );
+}
+
+function ProximosVencimentos({ clientes }) {
+  const proximos = clientes
+    .map((c) => ({ ...c, ...proximoVencimento(c.dataInicio) }))
+    .filter((c) => c.dias <= 30)
+    .sort((a, b) => a.dias - b.dias);
+
+  if (proximos.length === 0) return null;
+
+  const certificados = proximos.filter((c) => c.categoria === "certificado");
+  const seguros = proximos.filter((c) => c.categoria === "seguro");
+
+  return (
+    <div className="rounded-2xl p-4 mb-4" style={{ backgroundColor: "#FBEAEA", border: `1px solid ${COLORS.red}33` }}>
+      <div className="flex items-center gap-1.5 mb-2">
+        <Bell size={14} color={COLORS.red} />
+        <span className="text-xs font-semibold" style={{ color: COLORS.red }}>Próximos vencimentos (30 dias)</span>
+      </div>
+      {seguros.length > 0 && (
+        <div className="mb-2">
+          <div className="text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: COLORS.burgundy }}>Seguros</div>
+          {seguros.map((c) => (
+            <div key={c.id} className="flex items-center justify-between text-xs py-0.5">
+              <span style={{ color: COLORS.ink }}>{c.nome}</span>
+              <span className="font-semibold" style={{ color: COLORS.red }}>{c.dias}d</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {certificados.length > 0 && (
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: COLORS.skyBlue }}>Certificação Digital</div>
+          {certificados.map((c) => (
+            <div key={c.id} className="flex items-center justify-between text-xs py-0.5">
+              <span style={{ color: COLORS.ink }}>{c.nome}</span>
+              <span className="font-semibold" style={{ color: COLORS.red }}>{c.dias}d</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ====== APP ======
 function App() {
   const [tab, setTab] = useState("kanban");
@@ -1281,15 +1473,17 @@ function App() {
   const [despesas, setDespesas] = useState([]);
   const [cartoes, setCartoes] = useState([]);
   const [comprasCartao, setComprasCartao] = useState([]);
+  const [clientes, setClientes] = useState([]);
 
   const carregarTudo = async () => {
     setLoading(true); setErro("");
     try {
-      const [a, ag, f, d, ct, cc] = await Promise.all([
+      const [a, ag, f, d, ct, cc, cl] = await Promise.all([
         apiGet("/api/atendimentos"), apiGet("/api/agendamentos"), apiGet("/api/financeiro"),
         apiGet("/api/despesas").catch(() => []),
         apiGet("/api/cartoes").catch(() => []),
         apiGet("/api/compras-cartao").catch(() => []),
+        apiGet("/api/clientes").catch(() => []),
       ]);
       setAtendimentos(a.map(mapAtendimento));
       setAgendamentos(ag.map(mapAgendamento));
@@ -1297,6 +1491,7 @@ function App() {
       setDespesas(d.map(mapDespesa));
       setCartoes(ct.map(mapCartao));
       setComprasCartao(cc.map(mapCompraCartao));
+      setClientes(cl.map(mapCliente));
     } catch (e) {
       console.error(e);
       setErro("Não foi possível conectar ao servidor. Ele pode estar 'acordando' — aguarde até 1 minuto e tente de novo.");
@@ -1365,7 +1560,21 @@ function App() {
   };
   const moveAtendimento = async (id, status) => {
     setAtendimentos((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)));
-    try { await apiPatch(`/api/atendimentos/${id}`, { status }); }
+    try {
+      await apiPatch(`/api/atendimentos/${id}`, { status });
+      if (status === "finalizado") {
+        const item = atendimentos.find((a) => a.id === id);
+        const jaTemCliente = clientes.some((c) => c.atendimentoId === id);
+        if (item && !jaTemCliente) {
+          const novoCliente = {
+            id: uid(), nome: item.cliente, categoria: item.categoria, subtipo: item.subtipo,
+            dataInicio: todayStr(), notas: "", atendimentoId: id,
+          };
+          setClientes((prev) => [...prev, novoCliente]);
+          await apiPost("/api/clientes", novoCliente);
+        }
+      }
+    }
     catch (e) { console.error(e); setErro("Não foi possível atualizar o status."); }
   };
   const deleteAtendimento = async (id) => {
@@ -1444,11 +1653,27 @@ function App() {
     try { await apiDelete(`/api/compras-cartao/${id}`); }
     catch (e) { console.error(e); setErro("Não foi possível excluir a compra."); }
   };
+  const addCliente = async (item) => {
+    setClientes((prev) => [...prev, item]);
+    try { await apiPost("/api/clientes", item); }
+    catch (e) { console.error(e); setErro("Não foi possível salvar o cliente."); }
+  };
+  const editCliente = async (item) => {
+    setClientes((prev) => prev.map((c) => (c.id === item.id ? item : c)));
+    try { await apiPatch(`/api/clientes/${item.id}`, item); }
+    catch (e) { console.error(e); setErro("Não foi possível salvar as alterações."); }
+  };
+  const deleteCliente = async (id) => {
+    setClientes((prev) => prev.filter((c) => c.id !== id));
+    try { await apiDelete(`/api/clientes/${id}`); }
+    catch (e) { console.error(e); setErro("Não foi possível excluir o cliente."); }
+  };
 
   const tabs = [
     { key: "kanban", label: "Atendimentos", icon: LayoutGrid },
     { key: "calendario", label: "Calendário", icon: CalendarIcon },
     { key: "financeiro", label: "Financeiro", icon: Wallet },
+    { key: "clientes", label: "Clientes", icon: Users },
   ];
 
   if (loading) {
@@ -1486,11 +1711,12 @@ function App() {
             const active = tab === t.key;
             return (
               <button key={t.key} onClick={() => setTab(t.key)}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold"
+                      className="flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-lg text-[9px] font-semibold leading-tight"
                       style={{ backgroundColor: active ? "#fff" : "transparent",
                                color: active ? COLORS.burgundy : "rgba(255,255,255,0.75)",
                                boxShadow: active ? "0 1px 3px rgba(0,0,0,0.15)" : "none" }}>
-                <Icon size={14} color={active ? COLORS.burgundy : "rgba(255,255,255,0.75)"} /> {t.label}
+                <Icon size={15} color={active ? COLORS.burgundy : "rgba(255,255,255,0.75)"} />
+                {t.label}
               </button>
             );
           })}
@@ -1505,7 +1731,7 @@ function App() {
             <button onClick={carregarTudo} className="font-semibold underline flex-shrink-0">Tentar de novo</button>
           </div>
         )}
-        {tab === "kanban" && <KanbanBoard atendimentos={atendimentos} onAdd={addAtendimento} onMove={moveAtendimento} onDelete={deleteAtendimento} onEdit={editAtendimento} />}
+        {tab === "kanban" && <KanbanBoard atendimentos={atendimentos} onAdd={addAtendimento} onMove={moveAtendimento} onDelete={deleteAtendimento} onEdit={editAtendimento} clientes={clientes} />}
         {tab === "calendario" && <CalendarView agendamentos={agendamentos} onAdd={addAgendamento} onDelete={deleteAgendamento} />}
         {tab === "financeiro" && (
           <FinanceView
@@ -1515,6 +1741,9 @@ function App() {
             cartoes={cartoes} comprasCartao={comprasCartao} onAddCartao={addCartao} onDeleteCartao={deleteCartao}
             onAddCompra={addCompra} onEditCompra={editCompra} onDeleteCompra={deleteCompra}
           />
+        )}
+        {tab === "clientes" && (
+          <ClientesView clientes={clientes} onAdd={addCliente} onEdit={editCliente} onDelete={deleteCliente} />
         )}
       </div>
     </div>
