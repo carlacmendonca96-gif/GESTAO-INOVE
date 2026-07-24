@@ -362,5 +362,66 @@ app.delete("/api/despesas/:id", async (req, res) => {
   }
 });
 
+// ---------- CLIENTES ----------
+app.get("/api/clientes", async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT * FROM clientes ORDER BY nome");
+    res.json(rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao buscar clientes" });
+  }
+});
+
+app.post("/api/clientes", async (req, res) => {
+  const { id, nome, categoria, subtipo, dataInicio, notas, atendimentoId } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO clientes (id, nome, categoria, subtipo, data_inicio, notas, atendimento_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [id, nome, categoria, subtipo, dataInicio, notas || null, atendimentoId || null]
+    );
+    res.status(201).json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao criar cliente" });
+  }
+});
+
+app.patch("/api/clientes/:id", async (req, res) => {
+  const fields = {
+    nome: req.body.nome,
+    categoria: req.body.categoria,
+    subtipo: req.body.subtipo,
+    data_inicio: req.body.dataInicio,
+    notas: req.body.notas,
+  };
+  const keys = Object.keys(fields).filter((k) => fields[k] !== undefined);
+  if (keys.length === 0) return res.status(400).json({ error: "Nada para atualizar" });
+  const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
+  const values = keys.map((k) => fields[k]);
+  values.push(req.params.id);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE clientes SET ${setClause} WHERE id = $${values.length} RETURNING *`,
+      values
+    );
+    res.json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao atualizar cliente" });
+  }
+});
+
+app.delete("/api/clientes/:id", async (req, res) => {
+  try {
+    await pool.query("DELETE FROM clientes WHERE id = $1", [req.params.id]);
+    res.status(204).end();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao excluir cliente" });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`API rodando na porta ${PORT}`));
