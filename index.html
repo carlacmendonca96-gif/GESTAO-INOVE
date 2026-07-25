@@ -1145,12 +1145,16 @@ function CompraForm({ item, cartaoId, onSubmit, submitLabel }) {
           <input type="number" min="1" style={inputStyle} value={parcelas} onChange={(e) => setParcelas(e.target.value)} />
         </Field>
       </div>
-      <Field label="Data da compra">
+      <Field label="Mês da 1ª parcela na fatura">
         <input type="date" style={inputStyle} value={dataCompra} onChange={(e) => setDataCompra(e.target.value)} />
       </Field>
-      {nParc > 1 && (
+      {nParc > 1 ? (
         <p className="text-[11px] mb-3" style={{ color: COLORS.inkSoft }}>
-          Vai entrar na projeção por {nParc} meses seguidos, começando em {monthLabelShort(monthKey(dataCompra))}, no valor de {fmtMoney(parseFloat(valorParcela) || 0)}/mês.
+          Entra na fatura por {nParc} meses, a 1ª parcela em {monthLabelShort(monthKey(dataCompra))}, {fmtMoney(parseFloat(valorParcela) || 0)}/mês. Última parcela em {monthLabelShort(addMonths(monthKey(dataCompra), nParc - 1))}.
+        </p>
+      ) : (
+        <p className="text-[11px] mb-3" style={{ color: COLORS.inkSoft }}>
+          Entra na fatura de {monthLabelShort(monthKey(dataCompra))}. Use a data de vencimento da fatura onde a compra aparece.
         </p>
       )}
       <Field label="Observações">
@@ -1182,6 +1186,7 @@ function CartoesView({ cartoes, compras, onAddCartao, onDeleteCartao, onAddCompr
   const [cartaoAberto, setCartaoAberto] = useState(null);
   const [showAddCompra, setShowAddCompra] = useState(false);
   const [editingCompra, setEditingCompra] = useState(null);
+  const [mesDetalhe, setMesDetalhe] = useState(null);
 
   const refMes = monthKey(todayStr());
   const totalCartaoNoMes = (cartaoId, mk) => compras.filter((c) => c.cartaoId === cartaoId)
@@ -1215,14 +1220,37 @@ function CartoesView({ cartoes, compras, onAddCartao, onDeleteCartao, onAddCompr
         </div>
 
         <div className="mb-4">
-          <div className="text-xs font-semibold mb-2" style={{ color: COLORS.inkSoft }}>Projeção dos próximos meses</div>
+          <div className="text-xs font-semibold mb-2" style={{ color: COLORS.inkSoft }}>Projeção dos próximos meses (toque para ver o detalhe)</div>
           <div className="space-y-1.5">
             {meses.map((m) => {
               const total = totalCartaoNoMes(cartao.id, m);
+              const aberto = mesDetalhe === m;
+              const doMes = compras.filter((c) => c.cartaoId === cartao.id && parcelaInfo(c, m));
               return (
-                <div key={m} className="flex items-center justify-between text-xs rounded-lg px-3 py-2" style={{ backgroundColor: "#F2ECE2" }}>
-                  <span className="capitalize" style={{ color: COLORS.ink }}>{monthLabelShort(m)}</span>
-                  <span className="font-bold" style={{ color: total > 0 ? COLORS.ink : COLORS.inkSoft, fontFamily: "ui-monospace, monospace" }}>{fmtMoney(total)}</span>
+                <div key={m}>
+                  <button onClick={() => setMesDetalhe(aberto ? null : m)}
+                          className="w-full flex items-center justify-between text-xs rounded-lg px-3 py-2"
+                          style={{ backgroundColor: aberto ? COLORS.burgundy + "12" : "#F2ECE2" }}>
+                    <span className="capitalize font-medium" style={{ color: COLORS.ink }}>{monthLabelShort(m)}</span>
+                    <span className="font-bold" style={{ color: total > 0 ? COLORS.ink : COLORS.inkSoft, fontFamily: "ui-monospace, monospace" }}>{fmtMoney(total)}</span>
+                  </button>
+                  {aberto && (
+                    <div className="mt-1 mb-2 pl-3 space-y-1">
+                      {doMes.length === 0 && <p className="text-[11px]" style={{ color: COLORS.inkSoft }}>Sem parcelas neste mês</p>}
+                      {doMes.map((c) => {
+                        const p = parcelaInfo(c, m);
+                        return (
+                          <div key={c.id} className="flex items-center justify-between text-[11px] py-0.5">
+                            <span style={{ color: COLORS.ink }}>
+                              {c.descricao}
+                              {c.parcelas > 1 && <span style={{ color: COLORS.inkSoft }}> · parcela {p}/{c.parcelas}</span>}
+                            </span>
+                            <span className="font-semibold" style={{ color: COLORS.ink, fontFamily: "ui-monospace, monospace" }}>{fmtMoney(c.valorParcela)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1318,6 +1346,7 @@ function DespesasView({ despesas, onAdd, onEdit, onDelete, totalRecebidoNegocio,
 
   const totalPorTipo = (key) => despesas.filter((d) => d.tipo === key).reduce((s, d) => s + (d.valor || 0), 0);
   const [subTab, setSubTab] = useState("cartoes");
+  const [mesDetalhe, setMesDetalhe] = useState(null);
   const refMes = monthKey(todayStr());
   const totalCartaoEsteMes = cartoes.reduce((s, ct) => s + comprasCartao
     .filter((c) => c.cartaoId === ct.id)
@@ -1352,10 +1381,43 @@ function DespesasView({ despesas, onAdd, onEdit, onDelete, totalRecebidoNegocio,
         <div className="space-y-1.5">
           {mesesProjecao.map((m) => {
             const total = totalCartaoNoMes(m) + totalFixa;
+            const aberto = mesDetalhe === m;
+            const comprasDoMes = comprasCartao.filter((c) => parcelaInfo(c, m));
+            const fixasDoMes = despesas.filter((d) => d.tipo === "fixa");
             return (
-              <div key={m} className="flex items-center justify-between text-xs rounded-lg px-3 py-2" style={{ backgroundColor: "#F2ECE2" }}>
-                <span className="capitalize" style={{ color: COLORS.ink }}>{monthLabelShort(m)}</span>
-                <span className="font-bold" style={{ color: COLORS.ink, fontFamily: "ui-monospace, monospace" }}>{fmtMoney(total)}</span>
+              <div key={m}>
+                <button onClick={() => setMesDetalhe(aberto ? null : m)}
+                        className="w-full flex items-center justify-between text-xs rounded-lg px-3 py-2"
+                        style={{ backgroundColor: aberto ? COLORS.burgundy + "12" : "#F2ECE2" }}>
+                  <span className="capitalize font-medium" style={{ color: COLORS.ink }}>{monthLabelShort(m)}</span>
+                  <span className="font-bold" style={{ color: COLORS.ink, fontFamily: "ui-monospace, monospace" }}>{fmtMoney(total)}</span>
+                </button>
+                {aberto && (
+                  <div className="mt-1 mb-2 pl-3 space-y-1">
+                    {comprasDoMes.length === 0 && fixasDoMes.length === 0 && (
+                      <p className="text-[11px]" style={{ color: COLORS.inkSoft }}>Nada previsto neste mês</p>
+                    )}
+                    {comprasDoMes.map((c) => {
+                      const p = parcelaInfo(c, m);
+                      const nomeCartao = (cartoes.find((ct) => ct.id === c.cartaoId) || {}).nome || "Cartão";
+                      return (
+                        <div key={c.id} className="flex items-center justify-between text-[11px] py-0.5">
+                          <span style={{ color: COLORS.ink }}>
+                            {nomeCartao}: {c.descricao}
+                            {c.parcelas > 1 && <span style={{ color: COLORS.inkSoft }}> · parcela {p}/{c.parcelas}</span>}
+                          </span>
+                          <span className="font-semibold" style={{ color: COLORS.ink, fontFamily: "ui-monospace, monospace" }}>{fmtMoney(c.valorParcela)}</span>
+                        </div>
+                      );
+                    })}
+                    {fixasDoMes.map((d) => (
+                      <div key={d.id} className="flex items-center justify-between text-[11px] py-0.5">
+                        <span style={{ color: COLORS.ink }}>{d.titulo} <span style={{ color: COLORS.inkSoft }}>· conta fixa</span></span>
+                        <span className="font-semibold" style={{ color: COLORS.ink, fontFamily: "ui-monospace, monospace" }}>{fmtMoney(d.valor)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
