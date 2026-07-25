@@ -147,10 +147,16 @@ function parcelaInfo(compra, refMk) {
   if (offset < 0 || offset >= compra.parcelas) return null;
   return offset + 1;
 }
-function proximoVencimento(dataInicioStr) {
-  const [y, m, d] = dataInicioStr.split("-").map(Number);
+function proximoVencimento(dataInicioStr, dataVencimentoStr) {
   const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
-  const venc = new Date(y + 1, m - 1, d);
+  let venc;
+  if (dataVencimentoStr) {
+    const [vy, vm, vd] = dataVencimentoStr.split("-").map(Number);
+    venc = new Date(vy, vm - 1, vd);
+  } else {
+    const [y, m, d] = dataInicioStr.split("-").map(Number);
+    venc = new Date(y + 1, m - 1, d);
+  }
   const dias = Math.round((venc - hoje) / 86400000);
   return { venc, dias };
 }
@@ -234,6 +240,7 @@ function mapCliente(row) {
   return {
     id: row.id, nome: row.nome, categoria: row.categoria, subtipo: row.subtipo,
     dataInicio: row.data_inicio ? String(row.data_inicio).slice(0, 10) : "",
+    dataVencimento: row.data_vencimento ? String(row.data_vencimento).slice(0, 10) : "",
     notas: row.notas || "", atendimentoId: row.atendimento_id,
   };
 }
@@ -1463,8 +1470,8 @@ function FinanceView({ financeiro, onAddFinanceiro, onEditFinanceiro, onDeleteFi
 }
 
 // ====== CLIENTES ======
-function VencimentoBadge({ dataInicio }) {
-  const { dias } = proximoVencimento(dataInicio);
+function VencimentoBadge({ dataInicio, dataVencimento }) {
+  const { dias } = proximoVencimento(dataInicio, dataVencimento);
   const urgente = dias <= 30;
   const cor = urgente ? COLORS.red : COLORS.green;
   const texto = dias < 0 ? `Atrasado ${Math.abs(dias)}d` : dias === 0 ? "Renova hoje" : `Renova em ${dias}d`;
@@ -1480,12 +1487,17 @@ function ClienteForm({ item, categoriaFixa, onSubmit, submitLabel }) {
   const [categoria, setCategoria] = useState(item ? item.categoria : (categoriaFixa || "seguro"));
   const [subtipo, setSubtipo] = useState(item ? item.subtipo : SUBTIPOS[categoriaFixa || "seguro"][0].key);
   const [dataInicio, setDataInicio] = useState(item ? item.dataInicio : todayStr());
+  const [dataVencimento, setDataVencimento] = useState(item && item.dataVencimento ? item.dataVencimento : "");
   const [notas, setNotas] = useState(item ? item.notas : "");
 
   const submit = () => {
     if (!nome.trim()) return;
-    onSubmit({ nome: nome.trim(), categoria, subtipo, dataInicio, notas: notas.trim() });
+    onSubmit({ nome: nome.trim(), categoria, subtipo, dataInicio, dataVencimento, notas: notas.trim() });
   };
+
+  // Prévia da data que será usada
+  const prev = proximoVencimento(dataInicio, dataVencimento);
+  const prevStr = prev.venc.toISOString().slice(0, 10);
 
   return (
     <React.Fragment>
@@ -1496,8 +1508,13 @@ function ClienteForm({ item, categoriaFixa, onSubmit, submitLabel }) {
       <Field label="Data de início (venda / emissão)">
         <input type="date" style={inputStyle} value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
       </Field>
+      <Field label="Data de vencimento (opcional)">
+        <input type="date" style={inputStyle} value={dataVencimento} onChange={(e) => setDataVencimento(e.target.value)} />
+      </Field>
       <p className="text-[11px] mb-3" style={{ color: COLORS.inkSoft }}>
-        A renovação é calculada 1 ano após essa data, e você recebe um aviso 30 dias antes.
+        {dataVencimento
+          ? `Vencimento definido para ${fmtDatePt(dataVencimento)}. Aviso 30 dias antes.`
+          : `Deixe em branco para calcular automaticamente 1 ano após o início (${fmtDatePt(prevStr)}). Preencha para clientes que já estão perto de vencer.`}
       </p>
       <Field label="Observações">
         <textarea style={{ ...inputStyle, minHeight: 50, resize: "vertical" }} value={notas} onChange={(e) => setNotas(e.target.value)} />
@@ -1529,7 +1546,7 @@ function ClientesView({ clientes, onAdd, onEdit, onDelete }) {
   const [editingItem, setEditingItem] = useState(null);
 
   const lista = clientes.filter((c) => c.categoria === subTab)
-    .map((c) => ({ ...c, ...proximoVencimento(c.dataInicio) }))
+    .map((c) => ({ ...c, ...proximoVencimento(c.dataInicio, c.dataVencimento) }))
     .sort((a, b) => a.dias - b.dias);
 
   return (
@@ -1568,7 +1585,7 @@ function ClientesView({ clientes, onAdd, onEdit, onDelete }) {
                 <div className="text-sm font-semibold truncate" style={{ color: COLORS.ink }}>{c.nome}</div>
                 <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                   <Stamp categoria={c.categoria} subtipo={c.subtipo} />
-                  <VencimentoBadge dataInicio={c.dataInicio} />
+                  <VencimentoBadge dataInicio={c.dataInicio} dataVencimento={c.dataVencimento} />
                 </div>
                 {c.notas && <p className="text-xs mt-1" style={{ color: COLORS.inkSoft }}>{c.notas}</p>}
               </div>
@@ -1596,7 +1613,7 @@ function ClientesView({ clientes, onAdd, onEdit, onDelete }) {
 
 function ProximosVencimentos({ clientes }) {
   const proximos = clientes
-    .map((c) => ({ ...c, ...proximoVencimento(c.dataInicio) }))
+    .map((c) => ({ ...c, ...proximoVencimento(c.dataInicio, c.dataVencimento) }))
     .filter((c) => c.dias <= 30)
     .sort((a, b) => a.dias - b.dias);
 
