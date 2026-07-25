@@ -14,6 +14,65 @@ const pool = new Pool({
 // ---------- healthcheck ----------
 app.get("/", (req, res) => res.send("API do Painel da Corretora no ar."));
 
+// ---------- AUTENTICAÇÃO ----------
+const crypto = require("crypto");
+
+// Credenciais vêm de variáveis de ambiente (nunca ficam no código)
+const AUTH_USER = process.env.AUTH_USER || "";
+const AUTH_PASS_HASH = process.env.AUTH_PASS_HASH || ""; // hash SHA-256 da senha
+const SESSION_SECRET = process.env.SESSION_SECRET || "troque-este-segredo";
+
+// Duração da sessão: 30 minutos
+const SESSION_MINUTES = 30;
+
+function sha256(txt) {
+  return crypto.createHash("sha256").update(txt).digest("hex");
+}
+
+// Gera um token assinado com validade embutida
+function gerarToken() {
+  const exp = Date.now() + SESSION_MINUTES * 60 * 1000;
+  const payload = String(exp);
+  const assinatura = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("hex");
+  return payload + "." + assinatura;
+}
+
+function tokenValido(token) {
+  if (!token || !token.includes(".")) return false;
+  const [payload, assinatura] = token.split(".");
+  const esperada = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("hex");
+  if (assinatura !== esperada) return false;
+  const exp = Number(payload);
+  return Date.now() < exp;
+}
+
+// Rota de login
+app.post("/api/login", (req, res) => {
+  const { usuario, senha } = req.body || {};
+  if (!AUTH_USER || !AUTH_PASS_HASH) {
+    return res.status(500).json({ error: "Login não configurado no servidor." });
+  }
+  if (usuario === AUTH_USER && sha256(senha || "") === AUTH_PASS_HASH) {
+    return res.json({ token: gerarToken() });
+  }
+  return res.status(401).json({ error: "Usuário ou senha incorretos." });
+});
+
+// Verifica se o token ainda é válido (usado para saber se a sessão expirou)
+app.get("/api/verificar", (req, res) => {
+  const token = (req.headers.authorization || "").replace("Bearer ", "");
+  if (tokenValido(token)) return res.json({ ok: true });
+  return res.status(401).json({ error: "Sessão expirada." });
+});
+
+// Middleware: exige token válido em todas as rotas /api/* (menos login e verificar)
+app.use("/api", (req, res, next) => {
+  if (req.path === "/login" || req.path === "/verificar") return next();
+  const token = (req.headers.authorization || "").replace("Bearer ", "");
+  if (tokenValido(token)) return next();
+  return res.status(401).json({ error: "Não autorizado." });
+});
+
 // ---------- ATENDIMENTOS ----------
 app.get("/api/atendimentos", async (req, res) => {
   try {
