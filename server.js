@@ -1,266 +1,428 @@
-require("dotenv").config();
-
-const path = require("path");
 const express = require("express");
-const cookieParser = require("cookie-parser");
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-
-const { pool, inicializar } = require("./db");
+const cors = require("cors");
+const { Pool } = require("pg");
 
 const app = express();
-const PORTA = process.env.PORT || 3000;
-const SEGREDO = process.env.SESSION_SECRET;
-const PRODUCAO = process.env.NODE_ENV === "production";
+app.use(cors());
+app.use(express.json());
 
-if (!SEGREDO || SEGREDO.length < 32) {
-  console.error(
-    "Falta a variavel SESSION_SECRET (minimo 32 caracteres). Configure-a no Render."
-  );
-  process.exit(1);
-}
-
-app.set("trust proxy", 1); // o Render fica atras de um proxy
-app.use(express.json({ limit: "5mb" }));
-app.use(cookieParser());
-
-// Cabecalhos basicos de seguranca
-app.use((req, res, next) => {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("Referrer-Policy", "same-origin");
-  next();
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }, // necessário para conectar no Aiven
 });
 
-/* ------------------------------------------------------------------
-   Limite de tentativas de login
-   Cinco tentativas erradas por IP bloqueiam novas tentativas por 15 min.
------------------------------------------------------------------- */
-const tentativas = new Map();
-const LIMITE = 5;
-const JANELA_MS = 15 * 60 * 1000;
+// ---------- healthcheck ----------
+app.get("/", (req, res) => res.send("API do Painel da Corretora no ar."));
 
-function registrarFalha(ip) {
-  const agora = Date.now();
-  const atual = tentativas.get(ip);
-  if (!atual || agora > atual.expira) {
-    tentativas.set(ip, { contagem: 1, expira: agora + JANELA_MS });
-  } else {
-    atual.contagem += 1;
-  }
-}
-
-function bloqueado(ip) {
-  const atual = tentativas.get(ip);
-  if (!atual) return false;
-  if (Date.now() > atual.expira) {
-    tentativas.delete(ip);
-    return false;
-  }
-  return atual.contagem >= LIMITE;
-}
-
-/* ------------------------------------------------------------------
-   Sessao
------------------------------------------------------------------- */
-const NOME_COOKIE = "sessao";
-
-function criarSessao(res, usuario) {
-  const token = jwt.sign({ id: usuario.id, email: usuario.email }, SEGREDO, {
-    expiresIn: "7d",
-  });
-  res.cookie(NOME_COOKIE, token, {
-    httpOnly: true, // o JavaScript da pagina nao consegue ler
-    secure: PRODUCAO, // so trafega por HTTPS em producao
-    sameSite: "lax",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
-}
-
-function exigirLogin(req, res, next) {
-  const token = req.cookies[NOME_COOKIE];
-  if (!token) return res.status(401).json({ erro: "Sessao expirada." });
+// ---------- ATENDIMENTOS ----------
+app.get("/api/atendimentos", async (req, res) => {
   try {
-    req.usuario = jwt.verify(token, SEGREDO);
-    next();
-  } catch {
-    res.clearCookie(NOME_COOKIE);
-    return res.status(401).json({ erro: "Sessao expirada." });
+    const { rows } = await pool.query("SELECT * FROM atendimentos ORDER BY criado_em DESC");
+    res.json(rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao buscar atendimentos" });
   }
-}
+});
 
-/* ------------------------------------------------------------------
-   Rotas de autenticacao
------------------------------------------------------------------- */
-app.post("/api/login", async (req, res) => {
-  const ip = req.ip;
-
-  if (bloqueado(ip)) {
-    return res.status(429).json({
-      erro: "Muitas tentativas. Aguarde 15 minutos antes de tentar de novo.",
-    });
-  }
-
-  const email = String(req.body.email || "").trim().toLowerCase();
-  const senha = String(req.body.senha || "");
-
-  if (!email || !senha) {
-    return res.status(400).json({ erro: "Informe email e senha." });
-  }
-
+app.post("/api/atendimentos", async (req, res) => {
+  const { id, cliente, categoria, subtipo, horarioSolicitado, dataAgendamento, horarioAgendamento, valor, pagamento, status, notas } = req.body;
   try {
     const { rows } = await pool.query(
-      "SELECT id, email, senha_hash FROM usuarios WHERE email = $1",
-      [email]
+      `INSERT INTO atendimentos (id, cliente, categoria, subtipo, horario_solicitado, data_agendamento, horario_agendamento, valor, pagamento, status, notas)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      [id, cliente, categoria, subtipo, horarioSolicitado || null, dataAgendamento || null, horarioAgendamento || null, valor != null ? valor : null, pagamento || null, status || "iniciado", notas || null]
     );
-    const usuario = rows[0];
-
-    // Compara mesmo sem usuario, para nao revelar quais emails existem.
-    const hashFalso = "$2a$12$invalidinvalidinvalidinvalidinvalidinvalidinvalidinv";
-    const confere = await bcrypt.compare(senha, usuario ? usuario.senha_hash : hashFalso);
-
-    if (!usuario || !confere) {
-      registrarFalha(ip);
-      return res.status(401).json({ erro: "Email ou senha incorretos." });
-    }
-
-    tentativas.delete(ip);
-    criarSessao(res, usuario);
-    res.json({ email: usuario.email });
-  } catch (err) {
-    console.error("Erro no login:", err.message);
-    res.status(500).json({ erro: "Nao foi possivel entrar. Tente de novo." });
+    res.status(201).json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao criar atendimento" });
   }
 });
 
-app.post("/api/logout", (req, res) => {
-  res.clearCookie(NOME_COOKIE);
-  res.json({ ok: true });
-});
-
-app.get("/api/me", exigirLogin, (req, res) => {
-  res.json({ email: req.usuario.email });
-});
-
-/* ------------------------------------------------------------------
-   Dados do painel
------------------------------------------------------------------- */
-app.get("/api/dados", exigirLogin, async (req, res) => {
+app.patch("/api/atendimentos/:id", async (req, res) => {
+  const fields = {
+    cliente: req.body.cliente,
+    categoria: req.body.categoria,
+    subtipo: req.body.subtipo,
+    horario_solicitado: req.body.horarioSolicitado,
+    data_agendamento: req.body.dataAgendamento || null,
+    horario_agendamento: req.body.horarioAgendamento,
+    valor: req.body.valor != null ? req.body.valor : undefined,
+    pagamento: req.body.pagamento,
+    status: req.body.status,
+    notas: req.body.notas,
+  };
+  const keys = Object.keys(fields).filter((k) => fields[k] !== undefined);
+  if (keys.length === 0) return res.status(400).json({ error: "Nada para atualizar" });
+  const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
+  const values = keys.map((k) => fields[k]);
+  values.push(req.params.id);
   try {
     const { rows } = await pool.query(
-      "SELECT conteudo FROM dados_painel WHERE usuario_id = $1",
-      [req.usuario.id]
+      `UPDATE atendimentos SET ${setClause} WHERE id = $${values.length} RETURNING *`,
+      values
     );
-    res.json({ conteudo: rows[0] ? rows[0].conteudo : null });
-  } catch (err) {
-    console.error("Erro ao ler dados:", err.message);
-    res.status(500).json({ erro: "Nao foi possivel carregar os dados." });
+    res.json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao atualizar atendimento" });
   }
 });
 
-app.put("/api/dados", exigirLogin, async (req, res) => {
-  const conteudo = req.body.conteudo;
-  if (conteudo === undefined || conteudo === null) {
-    return res.status(400).json({ erro: "Conteudo ausente." });
-  }
+app.delete("/api/atendimentos/:id", async (req, res) => {
   try {
-    await pool.query(
-      `INSERT INTO dados_painel (usuario_id, conteudo, atualizado_em)
-       VALUES ($1, $2, now())
-       ON CONFLICT (usuario_id)
-       DO UPDATE SET conteudo = EXCLUDED.conteudo, atualizado_em = now()`,
-      [req.usuario.id, conteudo]
-    );
-    res.json({ ok: true });
-  } catch (err) {
-    console.error("Erro ao salvar dados:", err.message);
-    res.status(500).json({ erro: "Nao foi possivel salvar." });
+    await pool.query("DELETE FROM atendimentos WHERE id = $1", [req.params.id]);
+    res.status(204).end();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao excluir atendimento" });
   }
 });
 
-/* ------------------------------------------------------------------
-   Troca de senha
------------------------------------------------------------------- */
-app.post("/api/trocar-senha", exigirLogin, async (req, res) => {
-  const atual = String(req.body.atual || "");
-  const nova = String(req.body.nova || "");
-
-  if (nova.length < 10) {
-    return res.status(400).json({ erro: "A nova senha precisa ter ao menos 10 caracteres." });
+// ---------- AGENDAMENTOS ----------
+app.get("/api/agendamentos", async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT * FROM agendamentos ORDER BY data, horario");
+    res.json(rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao buscar agendamentos" });
   }
+});
 
+app.post("/api/agendamentos", async (req, res) => {
+  const { id, cliente, categoria, subtipo, data, horario, notas, atendimentoId } = req.body;
   try {
     const { rows } = await pool.query(
-      "SELECT senha_hash FROM usuarios WHERE id = $1",
-      [req.usuario.id]
+      `INSERT INTO agendamentos (id, cliente, categoria, subtipo, data, horario, notas, atendimento_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [id, cliente, categoria, subtipo, data, horario, notas || null, atendimentoId || null]
     );
-    const confere = await bcrypt.compare(atual, rows[0].senha_hash);
-    if (!confere) return res.status(401).json({ erro: "Senha atual incorreta." });
-
-    const hash = await bcrypt.hash(nova, 12);
-    await pool.query("UPDATE usuarios SET senha_hash = $1 WHERE id = $2", [
-      hash,
-      req.usuario.id,
-    ]);
-    res.json({ ok: true });
-  } catch (err) {
-    console.error("Erro ao trocar senha:", err.message);
-    res.status(500).json({ erro: "Nao foi possivel trocar a senha." });
+    res.status(201).json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao criar agendamento" });
   }
 });
 
-/* ------------------------------------------------------------------
-   Arquivos estaticos
------------------------------------------------------------------- */
-app.use(express.static(path.join(__dirname, "public")));
-
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
+app.patch("/api/agendamentos/:id", async (req, res) => {
+  const fields = {
+    cliente: req.body.cliente,
+    categoria: req.body.categoria,
+    subtipo: req.body.subtipo,
+    data: req.body.data,
+    horario: req.body.horario,
+    notas: req.body.notas,
+  };
+  const keys = Object.keys(fields).filter((k) => fields[k] !== undefined);
+  if (keys.length === 0) return res.status(400).json({ error: "Nada para atualizar" });
+  const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
+  const values = keys.map((k) => fields[k]);
+  values.push(req.params.id);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE agendamentos SET ${setClause} WHERE id = $${values.length} RETURNING *`,
+      values
+    );
+    res.json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao atualizar agendamento" });
+  }
 });
 
-/* ------------------------------------------------------------------
-   Primeiro acesso
+app.delete("/api/agendamentos/:id", async (req, res) => {
+  try {
+    await pool.query("DELETE FROM agendamentos WHERE id = $1", [req.params.id]);
+    res.status(204).end();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao excluir agendamento" });
+  }
+});
 
-   Se ainda nao existe nenhum usuario e as variaveis ADMIN_EMAIL e
-   ADMIN_SENHA_INICIAL estiverem preenchidas, o usuario e criado no
-   primeiro boot. A senha e gravada apenas como hash.
+// ---------- FINANCEIRO ----------
+app.get("/api/financeiro", async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT * FROM financeiro ORDER BY data DESC");
+    res.json(rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao buscar lançamentos" });
+  }
+});
 
-   Depois de entrar pela primeira vez, troque a senha pelo painel e
-   apague ADMIN_SENHA_INICIAL das variaveis do Render.
------------------------------------------------------------------- */
-async function garantirUsuarioInicial() {
-  const { rows } = await pool.query("SELECT COUNT(*)::int AS total FROM usuarios");
-  if (rows[0].total > 0) return;
-
-  const email = String(process.env.ADMIN_EMAIL || "").trim().toLowerCase();
-  const senha = String(process.env.ADMIN_SENHA_INICIAL || "");
-
-  if (!email || !senha) {
-    console.warn(
-      "Nenhum usuario cadastrado. Preencha ADMIN_EMAIL e ADMIN_SENHA_INICIAL para criar o primeiro acesso."
+app.post("/api/financeiro", async (req, res) => {
+  const { id, cliente, categoria, subtipo, valorPago, custo, forma, data, pago, atendimentoId } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO financeiro (id, cliente, categoria, subtipo, valor_pago, custo, forma, data, pago, atendimento_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [id, cliente, categoria, subtipo, valorPago || 0, custo || 0, forma || null, data, pago !== false, atendimentoId || null]
     );
-    return;
+    res.status(201).json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao criar lançamento" });
   }
+});
 
-  if (senha.length < 10) {
-    console.warn("ADMIN_SENHA_INICIAL curta demais. Use ao menos 10 caracteres.");
-    return;
+app.patch("/api/financeiro/:id", async (req, res) => {
+  const fields = {
+    cliente: req.body.cliente,
+    categoria: req.body.categoria,
+    subtipo: req.body.subtipo,
+    valor_pago: req.body.valorPago,
+    custo: req.body.custo,
+    forma: req.body.forma,
+    data: req.body.data,
+    pago: req.body.pago,
+  };
+  const keys = Object.keys(fields).filter((k) => fields[k] !== undefined);
+  if (keys.length === 0) return res.status(400).json({ error: "Nada para atualizar" });
+  const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
+  const values = keys.map((k) => fields[k]);
+  values.push(req.params.id);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE financeiro SET ${setClause} WHERE id = $${values.length} RETURNING *`,
+      values
+    );
+    res.json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao atualizar lançamento" });
   }
+});
 
-  const hash = await bcrypt.hash(senha, 12);
-  await pool.query("INSERT INTO usuarios (email, senha_hash) VALUES ($1, $2)", [email, hash]);
-  console.log(`Usuario inicial criado: ${email}`);
-}
+app.delete("/api/financeiro/:id", async (req, res) => {
+  try {
+    await pool.query("DELETE FROM financeiro WHERE id = $1", [req.params.id]);
+    res.status(204).end();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao excluir lançamento" });
+  }
+});
 
-/* ------------------------------------------------------------------
-   Inicializacao
------------------------------------------------------------------- */
-inicializar()
-  .then(garantirUsuarioInicial)
-  .then(() => {
-    app.listen(PORTA, () => console.log(`Servidor rodando na porta ${PORTA}`));
-  })
-  .catch((err) => {
-    console.error("Falha ao iniciar:", err.message);
-    process.exit(1);
-  });
+// ---------- CARTÕES DE CRÉDITO ----------
+app.get("/api/cartoes", async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT * FROM cartoes ORDER BY nome");
+    res.json(rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao buscar cartões" });
+  }
+});
+
+app.post("/api/cartoes", async (req, res) => {
+  const { id, nome, cor } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO cartoes (id, nome, cor) VALUES ($1,$2,$3) RETURNING *`,
+      [id, nome, cor || null]
+    );
+    res.status(201).json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao criar cartão" });
+  }
+});
+
+app.delete("/api/cartoes/:id", async (req, res) => {
+  try {
+    await pool.query("DELETE FROM cartoes WHERE id = $1", [req.params.id]);
+    res.status(204).end();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao excluir cartão" });
+  }
+});
+
+// ---------- COMPRAS PARCELADAS NO CARTÃO ----------
+app.get("/api/compras-cartao", async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT * FROM compras_cartao ORDER BY data_compra DESC");
+    res.json(rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao buscar compras" });
+  }
+});
+
+app.post("/api/compras-cartao", async (req, res) => {
+  const { id, cartaoId, descricao, valorParcela, dataCompra, parcelas, notas } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO compras_cartao (id, cartao_id, descricao, valor_parcela, data_compra, parcelas, notas)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [id, cartaoId, descricao, valorParcela || 0, dataCompra, parcelas || 1, notas || null]
+    );
+    res.status(201).json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao criar compra" });
+  }
+});
+
+app.patch("/api/compras-cartao/:id", async (req, res) => {
+  const fields = {
+    descricao: req.body.descricao,
+    valor_parcela: req.body.valorParcela,
+    data_compra: req.body.dataCompra,
+    parcelas: req.body.parcelas,
+    notas: req.body.notas,
+  };
+  const keys = Object.keys(fields).filter((k) => fields[k] !== undefined);
+  if (keys.length === 0) return res.status(400).json({ error: "Nada para atualizar" });
+  const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
+  const values = keys.map((k) => fields[k]);
+  values.push(req.params.id);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE compras_cartao SET ${setClause} WHERE id = $${values.length} RETURNING *`,
+      values
+    );
+    res.json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao atualizar compra" });
+  }
+});
+
+app.delete("/api/compras-cartao/:id", async (req, res) => {
+  try {
+    await pool.query("DELETE FROM compras_cartao WHERE id = $1", [req.params.id]);
+    res.status(204).end();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao excluir compra" });
+  }
+});
+
+// ---------- DESPESAS PESSOAIS (avulsas/fixas) ----------
+app.get("/api/despesas", async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT * FROM despesas ORDER BY data DESC");
+    res.json(rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao buscar despesas" });
+  }
+});
+
+app.post("/api/despesas", async (req, res) => {
+  const { id, titulo, tipo, valor, data, notas, forma } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO despesas (id, titulo, tipo, valor, data, notas, forma) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [id, titulo, tipo, valor || 0, data, notas || null, forma || null]
+    );
+    res.status(201).json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao criar despesa" });
+  }
+});
+
+app.patch("/api/despesas/:id", async (req, res) => {
+  const fields = {
+    titulo: req.body.titulo,
+    tipo: req.body.tipo,
+    valor: req.body.valor,
+    data: req.body.data,
+    notas: req.body.notas,
+    forma: req.body.forma,
+  };
+  const keys = Object.keys(fields).filter((k) => fields[k] !== undefined);
+  if (keys.length === 0) return res.status(400).json({ error: "Nada para atualizar" });
+  const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
+  const values = keys.map((k) => fields[k]);
+  values.push(req.params.id);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE despesas SET ${setClause} WHERE id = $${values.length} RETURNING *`,
+      values
+    );
+    res.json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao atualizar despesa" });
+  }
+});
+
+app.delete("/api/despesas/:id", async (req, res) => {
+  try {
+    await pool.query("DELETE FROM despesas WHERE id = $1", [req.params.id]);
+    res.status(204).end();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao excluir despesa" });
+  }
+});
+
+// ---------- CLIENTES ----------
+app.get("/api/clientes", async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT * FROM clientes ORDER BY nome");
+    res.json(rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao buscar clientes" });
+  }
+});
+
+app.post("/api/clientes", async (req, res) => {
+  const { id, nome, categoria, subtipo, dataInicio, notas, atendimentoId } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO clientes (id, nome, categoria, subtipo, data_inicio, notas, atendimento_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [id, nome, categoria, subtipo, dataInicio, notas || null, atendimentoId || null]
+    );
+    res.status(201).json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao criar cliente" });
+  }
+});
+
+app.patch("/api/clientes/:id", async (req, res) => {
+  const fields = {
+    nome: req.body.nome,
+    categoria: req.body.categoria,
+    subtipo: req.body.subtipo,
+    data_inicio: req.body.dataInicio,
+    notas: req.body.notas,
+  };
+  const keys = Object.keys(fields).filter((k) => fields[k] !== undefined);
+  if (keys.length === 0) return res.status(400).json({ error: "Nada para atualizar" });
+  const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
+  const values = keys.map((k) => fields[k]);
+  values.push(req.params.id);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE clientes SET ${setClause} WHERE id = $${values.length} RETURNING *`,
+      values
+    );
+    res.json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao atualizar cliente" });
+  }
+});
+
+app.delete("/api/clientes/:id", async (req, res) => {
+  try {
+    await pool.query("DELETE FROM clientes WHERE id = $1", [req.params.id]);
+    res.status(204).end();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao excluir cliente" });
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`API rodando na porta ${PORT}`));
