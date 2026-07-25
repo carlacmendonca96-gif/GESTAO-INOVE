@@ -84,6 +84,7 @@ const Landmark = (p) => <Svg {...p}><line x1="3" x2="21" y1="22" y2="22"/><line 
 const Users = (p) => <Svg {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></Svg>;
 const Bell = (p) => <Svg {...p}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></Svg>;
 const Filter = (p) => <Svg {...p}><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></Svg>;
+const LogOut = (p) => <Svg {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></Svg>;
 
 // ====== DADOS FIXOS ======
 const STATUSES = [
@@ -177,27 +178,62 @@ function subtipoLabel(cat, sub) {
 }
 
 // ====== API ======
+// Token de sessão guardado em memória (não em localStorage, por segurança)
+let SESSION_TOKEN = null;
+let onSessaoExpirada = null; // callback definido pelo App
+
+function authHeaders(extra) {
+  const h = extra || {};
+  if (SESSION_TOKEN) h["Authorization"] = "Bearer " + SESSION_TOKEN;
+  return h;
+}
+function tratar401(r) {
+  if (r.status === 401) {
+    SESSION_TOKEN = null;
+    if (onSessaoExpirada) onSessaoExpirada();
+    throw new Error("Sessão expirada");
+  }
+}
+
+async function apiLogin(usuario, senha) {
+  const r = await fetch(API_URL + "/api/login", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ usuario, senha }),
+  });
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    throw new Error(d.error || "Falha no login");
+  }
+  const d = await r.json();
+  SESSION_TOKEN = d.token;
+  return d.token;
+}
+
 async function apiGet(path) {
-  const r = await fetch(API_URL + path);
+  const r = await fetch(API_URL + path, { headers: authHeaders() });
+  tratar401(r);
   if (!r.ok) throw new Error("GET " + path);
   return r.json();
 }
 async function apiPost(path, body) {
   const r = await fetch(API_URL + path, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    method: "POST", headers: authHeaders({ "Content-Type": "application/json" }), body: JSON.stringify(body),
   });
+  tratar401(r);
   if (!r.ok) throw new Error("POST " + path);
   return r.json();
 }
 async function apiPatch(path, body) {
   const r = await fetch(API_URL + path, {
-    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    method: "PATCH", headers: authHeaders({ "Content-Type": "application/json" }), body: JSON.stringify(body),
   });
+  tratar401(r);
   if (!r.ok) throw new Error("PATCH " + path);
   return r.json();
 }
 async function apiDelete(path) {
-  const r = await fetch(API_URL + path, { method: "DELETE" });
+  const r = await fetch(API_URL + path, { method: "DELETE", headers: authHeaders() });
+  tratar401(r);
   if (!r.ok && r.status !== 204) throw new Error("DELETE " + path);
 }
 
@@ -1733,8 +1769,61 @@ function ProximosVencimentos({ clientes }) {
   );
 }
 
+// ====== TELA DE LOGIN ======
+function TelaLogin({ onEntrar }) {
+  const [usuario, setUsuario] = useState("");
+  const [senha, setSenha] = useState("");
+  const [erro, setErro] = useState("");
+  const [carregando, setCarregando] = useState(false);
+
+  const entrar = async () => {
+    if (!usuario.trim() || !senha) { setErro("Preencha usuário e senha."); return; }
+    setCarregando(true); setErro("");
+    try {
+      await apiLogin(usuario.trim(), senha);
+      onEntrar();
+    } catch (e) {
+      setErro(e.message === "Failed to fetch"
+        ? "Servidor iniciando, aguarde um instante e tente de novo."
+        : (e.message || "Não foi possível entrar."));
+    } finally {
+      setCarregando(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center px-4"
+         style={{ backgroundColor: COLORS.bg,
+                  backgroundImage: `url(${WATERMARK_B64})`, backgroundRepeat: "no-repeat",
+                  backgroundPosition: "center center", backgroundSize: "120vmin 120vmin" }}>
+      <div className="w-full max-w-sm rounded-2xl p-6" style={{ backgroundColor: COLORS.panel, border: `1px solid ${COLORS.line}`, boxShadow: "0 4px 20px rgba(16,27,51,0.10)" }}>
+        <div className="flex flex-col items-center mb-5">
+          <img src={LOGO_B64} alt="Inove" className="w-16 h-16 rounded-full mb-3" style={{ boxShadow: "0 1px 3px rgba(16,27,51,0.25)" }} />
+          <h1 className="text-2xl" style={{ color: COLORS.ink, fontFamily: "'Baloo 2', ui-rounded, system-ui, sans-serif", fontWeight: 700 }}>Inove</h1>
+          <p className="text-[11px]" style={{ color: COLORS.inkSoft }}>Painel de Gestão</p>
+        </div>
+        <form onSubmit={(e) => { e.preventDefault(); entrar(); }}>
+        <Field label="Usuário">
+          <input name="username" autoComplete="username" style={inputStyle} value={usuario} onChange={(e) => setUsuario(e.target.value)}
+                 placeholder="Seu usuário" autoFocus />
+        </Field>
+        <Field label="Senha">
+          <input type="password" name="password" autoComplete="current-password" style={inputStyle} value={senha} onChange={(e) => setSenha(e.target.value)}
+                 placeholder="Sua senha" />
+        </Field>
+        {erro && <p className="text-xs mb-3" style={{ color: COLORS.red }}>{erro}</p>}
+        <button type="submit" className="w-full py-3 rounded-xl font-medium text-sm" style={{ backgroundColor: COLORS.burgundy, color: "#fff" }}>
+          {carregando ? "Entrando..." : "Entrar"}
+        </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ====== APP ======
 function App() {
+  const [logado, setLogado] = useState(false);
   const [tab, setTab] = useState("kanban");
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState("");
@@ -1770,7 +1859,24 @@ function App() {
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { carregarTudo(); }, []);
+  useEffect(() => {
+    onSessaoExpirada = () => { setLogado(false); };
+    return () => { onSessaoExpirada = null; };
+  }, []);
+
+  useEffect(() => {
+    if (logado) carregarTudo();
+  }, [logado]);
+
+  // Verifica a sessão periodicamente; se expirou, volta para o login
+  useEffect(() => {
+    if (!logado) return;
+    const iv = setInterval(async () => {
+      try { await apiGet("/api/verificar"); }
+      catch (e) { /* o próprio tratar401 já dispara o logout */ }
+    }, 60 * 1000);
+    return () => clearInterval(iv);
+  }, [logado]);
 
   const addAtendimento = async (item) => {
     setAtendimentos((prev) => [item, ...prev]);
@@ -1948,6 +2054,10 @@ function App() {
     { key: "clientes", label: "Clientes", icon: Users },
   ];
 
+  if (!logado) {
+    return <TelaLogin onEntrar={() => setLogado(true)} />;
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: COLORS.bg }}>
@@ -1973,6 +2083,9 @@ function App() {
             <p className="text-[11px] leading-tight" style={{ color: COLORS.inkSoft }}>Seguros e Soluções Financeiras · Certificação Digital</p>
           </div>
           <div className="ml-auto flex items-start gap-2">
+          <button onClick={() => { SESSION_TOKEN = null; setLogado(false); }} className="p-2 rounded-lg hover:bg-black/5 flex-shrink-0" title="Sair">
+            <LogOut size={16} color={COLORS.inkSoft} />
+          </button>
           <button onClick={carregarTudo} className="p-2 rounded-lg hover:bg-black/5 flex-shrink-0" title="Atualizar">
             <RefreshCw size={16} color={COLORS.inkSoft} />
           </button>
