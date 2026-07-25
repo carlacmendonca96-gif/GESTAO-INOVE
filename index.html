@@ -139,6 +139,16 @@ function monthLabelShort(mk) {
   const [y, m] = mk.split("-").map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
 }
+function monthLabelLong(mk) {
+  const [y, m] = mk.split("-").map(Number);
+  const s = new Date(y, m - 1, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+function hojeExtenso() {
+  const d = new Date();
+  const s = d.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
 function parcelaInfo(compra, refMk) {
   const inicio = monthKey(compra.dataCompra);
   const [iy, im] = inicio.split("-").map(Number);
@@ -502,7 +512,7 @@ function AtendimentoCard({ item, onMove, onDelete, onEdit }) {
   );
 }
 
-function KanbanBoard({ atendimentos, onAdd, onMove, onDelete, onEdit, clientes }) {
+function KanbanBoard({ atendimentos, onAdd, onMove, onDelete, onEdit, clientes, mesKanban }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [showFiltros, setShowFiltros] = useState(false);
@@ -514,7 +524,8 @@ function KanbanBoard({ atendimentos, onAdd, onMove, onDelete, onEdit, clientes }
   const today = todayStr();
   const hojeCount = atendimentos.filter((a) => (a.criadoEm || "").slice(0, 10) === today).length;
 
-  let filtrados = atendimentos;
+  // Só os atendimentos do mês selecionado no cabeçalho
+  let filtrados = atendimentos.filter((a) => (a.criadoEm || "").slice(0, 7) === mesKanban);
   if (fCategoria) filtrados = filtrados.filter((a) => a.categoria === fCategoria);
   if (fSubtipo) filtrados = filtrados.filter((a) => a.subtipo === fSubtipo);
   if (fNome.trim()) filtrados = filtrados.filter((a) => a.cliente.toLowerCase().includes(fNome.trim().toLowerCase()));
@@ -530,7 +541,7 @@ function KanbanBoard({ atendimentos, onAdd, onMove, onDelete, onEdit, clientes }
       <div className="flex items-center justify-between mb-3">
         <div>
           <h2 className="text-lg font-semibold" style={{ color: COLORS.ink, fontFamily: "Georgia, serif" }}>Atendimentos</h2>
-          <p className="text-xs" style={{ color: COLORS.inkSoft }}>{hojeCount} recebido(s) hoje · {filtrados.length} de {atendimentos.length}</p>
+          <p className="text-xs" style={{ color: COLORS.inkSoft }}>{hojeCount} recebido(s) hoje · {filtrados.length} em {monthLabelLong(mesKanban)}</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => setShowFiltros((v) => !v)}
@@ -1734,6 +1745,7 @@ function App() {
   const [cartoes, setCartoes] = useState([]);
   const [comprasCartao, setComprasCartao] = useState([]);
   const [clientes, setClientes] = useState([]);
+  const [mesKanban, setMesKanban] = useState(monthKey(todayStr()));
 
   const carregarTudo = async () => {
     setLoading(true); setErro("");
@@ -1960,9 +1972,25 @@ function App() {
             <h1 className="text-2xl leading-tight" style={{ color: COLORS.ink, fontFamily: "'Baloo 2', ui-rounded, system-ui, sans-serif", fontWeight: 700, letterSpacing: "0.3px" }}>Inove</h1>
             <p className="text-[11px] leading-tight" style={{ color: COLORS.inkSoft }}>Seguros e Soluções Financeiras · Certificação Digital</p>
           </div>
-          <button onClick={carregarTudo} className="ml-auto p-2 rounded-lg hover:bg-black/5" title="Atualizar">
+          <div className="ml-auto flex items-start gap-2">
+          <button onClick={carregarTudo} className="p-2 rounded-lg hover:bg-black/5 flex-shrink-0" title="Atualizar">
             <RefreshCw size={16} color={COLORS.inkSoft} />
           </button>
+          <div className="flex flex-col items-end flex-shrink-0">
+            <div className="flex items-center gap-1 px-2 py-1 rounded-lg" style={{ backgroundColor: COLORS.burgundy }}>
+              <button onClick={() => setMesKanban(addMonths(mesKanban, -1))} className="p-0.5 rounded hover:bg-white/10">
+                <ChevronLeft size={16} color="#fff" />
+              </button>
+              <span className="text-sm font-bold text-white capitalize" style={{ minWidth: 110, textAlign: "center" }}>{monthLabelLong(mesKanban)}</span>
+              <button onClick={() => setMesKanban(addMonths(mesKanban, 1))} className="p-0.5 rounded hover:bg-white/10">
+                <ChevronRight size={16} color="#fff" />
+              </button>
+            </div>
+            <div className="mt-1 px-2 py-0.5 rounded-md" style={{ backgroundColor: COLORS.skyBlue + "1A" }}>
+              <span className="text-[11px] font-semibold capitalize" style={{ color: COLORS.skyBlue }}>{hojeExtenso()}</span>
+            </div>
+          </div>
+          </div>
         </div>
 
         <div className="flex gap-1 p-1 rounded-xl" style={{ backgroundColor: COLORS.burgundy }}>
@@ -1991,7 +2019,7 @@ function App() {
             <button onClick={carregarTudo} className="font-semibold underline flex-shrink-0">Tentar de novo</button>
           </div>
         )}
-        {tab === "kanban" && <KanbanBoard atendimentos={atendimentos} onAdd={addAtendimento} onMove={moveAtendimento} onDelete={deleteAtendimento} onEdit={editAtendimento} clientes={clientes} />}
+        {tab === "kanban" && <KanbanBoard atendimentos={atendimentos} onAdd={addAtendimento} onMove={moveAtendimento} onDelete={deleteAtendimento} onEdit={editAtendimento} clientes={clientes} mesKanban={mesKanban} />}
         {tab === "calendario" && <CalendarView agendamentos={agendamentos} onAdd={addAgendamento} onDelete={deleteAgendamento} />}
         {tab === "financeiro" && (
           <FinanceView
