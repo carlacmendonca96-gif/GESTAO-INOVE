@@ -375,12 +375,12 @@ app.get("/api/clientes", async (req, res) => {
 });
 
 app.post("/api/clientes", async (req, res) => {
-  const { id, nome, categoria, subtipo, dataInicio, notas, atendimentoId } = req.body;
+  const { id, nome, categoria, subtipo, dataInicio, dataVencimento, notas, atendimentoId } = req.body;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO clientes (id, nome, categoria, subtipo, data_inicio, notas, atendimento_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [id, nome, categoria, subtipo, dataInicio, notas || null, atendimentoId || null]
+      `INSERT INTO clientes (id, nome, categoria, subtipo, data_inicio, data_vencimento, notas, atendimento_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [id, nome, categoria, subtipo, dataInicio, dataVencimento || null, notas || null, atendimentoId || null]
     );
     res.status(201).json(rows[0]);
   } catch (e) {
@@ -395,6 +395,7 @@ app.patch("/api/clientes/:id", async (req, res) => {
     categoria: req.body.categoria,
     subtipo: req.body.subtipo,
     data_inicio: req.body.dataInicio,
+    data_vencimento: req.body.dataVencimento,
     notas: req.body.notas,
   };
   const keys = Object.keys(fields).filter((k) => fields[k] !== undefined);
