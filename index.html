@@ -62,6 +62,7 @@ const Plus = (p) => <Svg {...p}><path d="M5 12h14"/><path d="M12 5v14"/></Svg>;
 const X = (p) => <Svg {...p}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></Svg>;
 const ChevronLeft = (p) => <Svg {...p}><path d="m15 18-6-6 6-6"/></Svg>;
 const ChevronRight = (p) => <Svg {...p}><path d="m9 18 6-6-6-6"/></Svg>;
+const ChevronDown = (p) => <Svg {...p}><path d="m6 9 6 6 6-6"/></Svg>;
 const Trash2 = (p) => <Svg {...p}><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></Svg>;
 const Shield = (p) => <Svg {...p}><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></Svg>;
 const ShieldCheck = (p) => <Svg {...p}><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></Svg>;
@@ -1234,8 +1235,8 @@ function CartoesView({ cartoes, compras, onAddCartao, onDeleteCartao, onAddCompr
   const [showAddCompra, setShowAddCompra] = useState(false);
   const [editingCompra, setEditingCompra] = useState(null);
   const [mesDetalhe, setMesDetalhe] = useState(null);
-
-  const refMes = monthKey(todayStr());
+  const [detalheGeralAberto, setDetalheGeralAberto] = useState(false);
+  const [refMes, setRefMes] = useState(monthKey(todayStr()));
   const totalCartaoNoMes = (cartaoId, mk) => compras.filter((c) => c.cartaoId === cartaoId)
     .reduce((s, c) => { const p = parcelaInfo(c, mk); return p ? s + c.valorParcela : s; }, 0);
   const totalGeralNoMes = (mk) => cartoes.reduce((s, ct) => s + totalCartaoNoMes(ct.id, mk), 0);
@@ -1345,8 +1346,54 @@ function CartoesView({ cartoes, compras, onAddCartao, onDeleteCartao, onAddCompr
   return (
     <div>
       <div className="rounded-2xl p-4 mb-4" style={{ backgroundColor: COLORS.burgundy }}>
-        <div className="text-xs mb-1" style={{ color: "#C9D6E8" }}>Total comprometido este mês ({monthLabelShort(refMes)})</div>
-        <div className="text-xl font-bold text-white" style={{ fontFamily: "ui-monospace, monospace" }}>{fmtMoney(totalGeralNoMes(refMes))}</div>
+        <div className="flex items-center justify-between mb-2">
+          <button onClick={() => setRefMes((m) => addMonths(m, -1))} className="p-1.5 rounded-lg hover:bg-white/10" title="Mês anterior">
+            <ChevronLeft size={18} color="#fff" />
+          </button>
+          <div className="text-center leading-tight">
+            <div className="text-xs" style={{ color: "#C9D6E8" }}>Total comprometido</div>
+            <div className="text-sm font-semibold capitalize text-white">{monthLabelShort(refMes)}</div>
+            {refMes !== monthKey(todayStr()) && (
+              <button onClick={() => setRefMes(monthKey(todayStr()))} className="text-[10px] underline mt-0.5" style={{ color: "#C9D6E8" }}>voltar ao mês atual</button>
+            )}
+          </div>
+          <button onClick={() => setRefMes((m) => addMonths(m, 1))} className="p-1.5 rounded-lg hover:bg-white/10" title="Próximo mês">
+            <ChevronRight size={18} color="#fff" />
+          </button>
+        </div>
+        <button onClick={() => setDetalheGeralAberto((v) => !v)} className="w-full flex items-center justify-between text-left">
+          <div className="text-xl font-bold text-white" style={{ fontFamily: "ui-monospace, monospace" }}>{fmtMoney(totalGeralNoMes(refMes))}</div>
+          <div className="flex-shrink-0 ml-2 transition-transform" style={{ transform: detalheGeralAberto ? "rotate(180deg)" : "none" }}>
+            <ChevronDown size={22} color="#fff" />
+          </div>
+        </button>
+        {detalheGeralAberto && (
+          <div className="mt-3 pt-3 space-y-2" style={{ borderTop: "1px solid rgba(255,255,255,0.15)" }}>
+            {cartoes.length === 0 && <p className="text-[11px]" style={{ color: "#C9D6E8" }}>Nenhum cartão cadastrado.</p>}
+            {cartoes.map((ct) => {
+              const totalCt = totalCartaoNoMes(ct.id, refMes);
+              const doMes = compras.filter((c) => c.cartaoId === ct.id && parcelaInfo(c, refMes));
+              return (
+                <div key={ct.id}>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-white">{ct.nome}</span>
+                    <span className="font-bold" style={{ color: totalCt > 0 ? "#fff" : "#C9D6E8", fontFamily: "ui-monospace, monospace" }}>{fmtMoney(totalCt)}</span>
+                  </div>
+                  {doMes.length === 0 && <p className="text-[11px] mt-0.5" style={{ color: "#C9D6E8" }}>Sem parcelas neste mês</p>}
+                  {doMes.map((c) => {
+                    const p = parcelaInfo(c, refMes);
+                    return (
+                      <div key={c.id} className="flex items-center justify-between text-[11px] pl-2 py-0.5" style={{ color: "#E6DEF0" }}>
+                        <span>{c.descricao}{c.parcelas > 1 && <span style={{ color: "#C9D6E8" }}> · parcela {p}/{c.parcelas}</span>}</span>
+                        <span style={{ fontFamily: "ui-monospace, monospace" }}>{fmtMoney(c.valorParcela)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="flex items-center justify-between mb-3">
@@ -1369,7 +1416,15 @@ function CartoesView({ cartoes, compras, onAddCartao, onDeleteCartao, onAddCompr
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-semibold truncate" style={{ color: COLORS.ink }}>{ct.nome}</div>
-                <div className="text-xs" style={{ color: COLORS.inkSoft }}>{compras.filter((c) => c.cartaoId === ct.id).length} compra(s) lançada(s)</div>
+                {(() => {
+                  const totalLancadas = compras.filter((c) => c.cartaoId === ct.id).length;
+                  const noMes = compras.filter((c) => c.cartaoId === ct.id && parcelaInfo(c, refMes)).length;
+                  return (
+                    <div className="text-xs" style={{ color: COLORS.inkSoft }}>
+                      {totalLancadas} compra(s) lançada(s) · {noMes > 0 ? `${noMes} em ${monthLabelShort(refMes)}` : `nenhuma em ${monthLabelShort(refMes)}`}
+                    </div>
+                  );
+                })()}
               </div>
             </button>
             <div className="text-sm font-bold flex-shrink-0" style={{ color: COLORS.ink, fontFamily: "ui-monospace, monospace" }}>{fmtMoney(totalCartaoNoMes(ct.id, refMes))}</div>
