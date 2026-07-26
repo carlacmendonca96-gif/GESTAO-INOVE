@@ -86,6 +86,7 @@ const Users = (p) => <Svg {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 
 const Bell = (p) => <Svg {...p}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></Svg>;
 const Filter = (p) => <Svg {...p}><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></Svg>;
 const LogOut = (p) => <Svg {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></Svg>;
+const MessageCircle = (p) => <Svg {...p}><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></Svg>;
 
 // ====== DADOS FIXOS ======
 const STATUSES = [
@@ -139,6 +140,37 @@ function todayStr() { return new Date().toISOString().slice(0, 10); }
 function fmtMoney(v) { return (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
 function fmtDatePt(s) { if (!s) return ""; const [y, m, d] = s.split("-"); return `${d}/${m}/${y}`; }
 function monthKey(dateStr) { return (dateStr || todayStr()).slice(0, 7); }
+
+// ====== WHATSAPP (números salvos no navegador deste computador) ======
+function normalizarTelefone(tel) {
+  let d = String(tel || "").replace(/\D/g, "");
+  if (!d) return "";
+  if (d.length <= 11 && !d.startsWith("55")) d = "55" + d; // assume Brasil (DDI 55)
+  return d;
+}
+function getTelefones() {
+  try { return JSON.parse(localStorage.getItem("wa_telefones") || "{}"); } catch (e) { return {}; }
+}
+function chaveTel(nome) { return String(nome || "").trim().toLowerCase(); }
+function getTelefone(nome) { return getTelefones()[chaveTel(nome)] || ""; }
+function setTelefone(nome, tel) {
+  try {
+    const m = getTelefones(); const k = chaveTel(nome);
+    if (tel) m[k] = tel; else delete m[k];
+    localStorage.setItem("wa_telefones", JSON.stringify(m));
+  } catch (e) {}
+}
+function abrirWhatsApp(nome, mensagem) {
+  let tel = getTelefone(nome);
+  if (!tel) {
+    const entrada = window.prompt(`WhatsApp de ${nome || "cliente"} (com DDD, ex: 11 91234-5678):`);
+    if (!entrada) return;
+    tel = normalizarTelefone(entrada);
+    if (!tel) return;
+    setTelefone(nome, tel);
+  }
+  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(mensagem || "")}`, "_blank");
+}
 function addMonths(mk, n) {
   const [y, m] = mk.split("-").map(Number);
   const d = new Date(y, m - 1 + n, 1);
@@ -1024,13 +1056,23 @@ function NegocioFinanceiro({ financeiro, onAdd, onEdit, onDelete, onMarcarPago }
                 <span className="text-[10px] block" style={{ color: COLORS.inkSoft }}>Custo</span>
                 <span className="text-sm font-bold" style={{ color: COLORS.red, fontFamily: "ui-monospace, monospace" }}>{fmtMoney(f.custo)}</span>
               </div>
-              {!f.pago && (
-                <button onClick={() => onMarcarPago(f.id)}
-                        className="ml-auto flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium"
-                        style={{ backgroundColor: COLORS.green + "1A", color: COLORS.green }}>
-                  <Check size={13} color={COLORS.green} /> Marcar como pago
+              <div className="ml-auto flex items-center gap-1.5">
+                <button onClick={() => abrirWhatsApp(f.cliente, f.pago
+                          ? `Olá ${f.cliente}, tudo bem? 😊 Confirmo o recebimento de ${fmtMoney(f.valorPago)}. Muito obrigada!`
+                          : `Olá ${f.cliente}, tudo bem? 😊 Passando para lembrar sobre o pagamento de ${fmtMoney(f.valorPago)}${f.data ? ` (lançado em ${fmtDatePt(f.data)})` : ""} que ainda consta em aberto. Fico à disposição para qualquer dúvida!`)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium"
+                        style={{ backgroundColor: "#25D3661A", color: "#128C4B" }}
+                        title="Abrir conversa no WhatsApp">
+                  <MessageCircle size={13} color="#128C4B" /> {f.pago ? "WhatsApp" : "Cobrar"}
                 </button>
-              )}
+                {!f.pago && (
+                  <button onClick={() => onMarcarPago(f.id)}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium"
+                          style={{ backgroundColor: COLORS.green + "1A", color: COLORS.green }}>
+                    <Check size={13} color={COLORS.green} /> Marcar como pago
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         ))}
@@ -1690,9 +1732,11 @@ function ClienteForm({ item, categoriaFixa, onSubmit, submitLabel }) {
   const [dataInicio, setDataInicio] = useState(item ? item.dataInicio : todayStr());
   const [dataVencimento, setDataVencimento] = useState(item && item.dataVencimento ? item.dataVencimento : "");
   const [notas, setNotas] = useState(item ? item.notas : "");
+  const [telefone, setTelefoneInput] = useState(item ? getTelefone(item.nome) : "");
 
   const submit = () => {
     if (!nome.trim()) return;
+    setTelefone(nome.trim(), normalizarTelefone(telefone));
     onSubmit({ nome: nome.trim(), categoria, subtipo, dataInicio, dataVencimento, notas: notas.trim() });
   };
 
@@ -1704,6 +1748,9 @@ function ClienteForm({ item, categoriaFixa, onSubmit, submitLabel }) {
     <React.Fragment>
       <Field label="Cliente">
         <input style={inputStyle} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome do cliente" autoFocus />
+      </Field>
+      <Field label="WhatsApp (com DDD)">
+        <input style={inputStyle} value={telefone} onChange={(e) => setTelefoneInput(e.target.value)} placeholder="Ex: 11 91234-5678" inputMode="tel" />
       </Field>
       <CategoriaSubtipoPicker categoria={categoria} setCategoria={setCategoria} subtipo={subtipo} setSubtipo={setSubtipo} />
       <Field label="Data de início (venda / emissão)">
@@ -1820,6 +1867,10 @@ function ClientesView({ clientes, onAdd, onEdit, onDelete }) {
                 {c.notas && <p className="text-xs mt-1" style={{ color: COLORS.inkSoft }}>{c.notas}</p>}
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
+                <button onClick={() => abrirWhatsApp(c.nome, `Olá ${c.nome}, tudo bem? 😊`)}
+                        className="p-1.5 rounded-lg hover:bg-black/5" title="Falar no WhatsApp">
+                  <MessageCircle size={14} color="#128C4B" />
+                </button>
                 <button onClick={() => setEditingItem(c)} className="p-1.5 rounded-lg hover:bg-black/5" title="Editar">
                   <PenLine size={13} color={COLORS.inkSoft} />
                 </button>
