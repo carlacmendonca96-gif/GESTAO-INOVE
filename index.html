@@ -99,6 +99,7 @@ const STATUSES = [
 const CATEGORIAS = [
   { key: "seguro", label: "Seguro", color: COLORS.burgundy, icon: Shield },
   { key: "certificado", label: "Certificação Digital", color: COLORS.skyBlue, icon: ShieldCheck },
+  { key: "outros", label: "Outros", color: COLORS.slate, icon: Wallet },
 ];
 const SUBTIPOS = {
   seguro: [
@@ -116,6 +117,12 @@ const SUBTIPOS = {
   certificado: [
     { key: "ecpf", label: "e-CPF" },
     { key: "ecnpj", label: "e-CNPJ" },
+  ],
+  outros: [
+    { key: "servico", label: "Serviço avulso" },
+    { key: "comissao", label: "Comissão/indicação" },
+    { key: "reembolso", label: "Reembolso" },
+    { key: "outro", label: "Outros" },
   ],
 };
 const FORMAS_PAGAMENTO = ["Pix", "Cartão de crédito", "Cartão de débito", "Boleto", "Dinheiro"];
@@ -366,7 +373,7 @@ function CategoriaSubtipoPicker({ categoria, setCategoria, subtipo, setSubtipo }
           ))}
         </div>
       </Field>
-      <Field label={categoria === "seguro" ? "Qual seguro?" : "Qual certificado?"}>
+      <Field label={categoria === "seguro" ? "Qual seguro?" : categoria === "certificado" ? "Qual certificado?" : "Qual tipo?"}>
         <select style={inputStyle} value={subtipo} onChange={(e) => setSubtipo(e.target.value)}>
           {(SUBTIPOS[categoria] || []).map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
         </select>
@@ -610,7 +617,7 @@ function KanbanBoard({ atendimentos, onAdd, onMove, onDelete, onEdit, clientes, 
             </div>
           </Field>
           {fCategoria && (
-            <Field label={fCategoria === "seguro" ? "Qual seguro?" : "Qual certificado?"}>
+            <Field label={fCategoria === "seguro" ? "Qual seguro?" : fCategoria === "certificado" ? "Qual certificado?" : "Qual tipo?"}>
               <select style={inputStyle} value={fSubtipo || ""} onChange={(e) => setFSubtipo(e.target.value || null)}>
                 <option value="">Todos</option>
                 {SUBTIPOS[fCategoria].map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
@@ -775,6 +782,7 @@ function CalendarView({ agendamentos, onAdd, onDelete }) {
       <div className="flex items-center gap-3 mb-3 text-[11px]" style={{ color: COLORS.inkSoft }}>
         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ backgroundColor: COLORS.burgundy + "30", border: `1px solid ${COLORS.burgundy}` }} />Seguro</span>
         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ backgroundColor: COLORS.skyBlue + "30", border: `1px solid ${COLORS.skyBlue}` }} />Certificação Digital</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ backgroundColor: COLORS.slate + "30", border: `1px solid ${COLORS.slate}` }} />Outros</span>
       </div>
 
       <div className="flex items-center justify-between mb-3">
