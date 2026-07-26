@@ -1745,10 +1745,22 @@ function ClientesView({ clientes, onAdd, onEdit, onDelete }) {
   const [subTab, setSubTab] = useState("certificado");
   const [showAdd, setShowAdd] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
+  const [filtroVenc, setFiltroVenc] = useState(null);
 
-  const lista = clientes.filter((c) => c.categoria === subTab)
+  const todosDaCategoria = clientes.filter((c) => c.categoria === subTab)
     .map((c) => ({ ...c, ...proximoVencimento(c.dataInicio, c.dataVencimento) }))
     .sort((a, b) => a.dias - b.dias);
+  let lista = todosDaCategoria;
+  if (filtroVenc === "vencidos") lista = todosDaCategoria.filter((c) => c.dias < 0);
+  else if (typeof filtroVenc === "number") lista = todosDaCategoria.filter((c) => c.dias <= filtroVenc);
+
+  const FILTROS_VENC = [
+    { k: null, l: "Todos" },
+    { k: 30, l: "Vencendo ≤ 30d" },
+    { k: 60, l: "≤ 60 dias" },
+    { k: 90, l: "≤ 90 dias" },
+    { k: "vencidos", l: "Vencidos" },
+  ];
 
   return (
     <div>
@@ -1768,15 +1780,32 @@ function ClientesView({ clientes, onAdd, onEdit, onDelete }) {
       </div>
 
       <div className="flex items-center justify-between mb-3">
-        <p className="text-xs" style={{ color: COLORS.inkSoft }}>{lista.length} cliente(s)</p>
+        <p className="text-xs" style={{ color: COLORS.inkSoft }}>{lista.length} de {todosDaCategoria.length} cliente(s)</p>
         <button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium"
                 style={{ backgroundColor: COLORS.burgundy, color: "#fff" }}>
           <Plus size={16} color="#fff" /> Novo cliente
         </button>
       </div>
 
+      <div className="flex gap-1.5 mb-3 flex-wrap">
+        {FILTROS_VENC.map((f) => {
+          const ativo = filtroVenc === f.k;
+          return (
+            <button key={String(f.k)} onClick={() => setFiltroVenc(f.k)}
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-medium border"
+                    style={{ borderColor: ativo ? COLORS.red : COLORS.line,
+                             backgroundColor: ativo ? COLORS.red + "14" : "transparent",
+                             color: ativo ? COLORS.red : COLORS.inkSoft }}>
+              {f.l}
+            </button>
+          );
+        })}
+      </div>
+
       {lista.length === 0 && (
-        <p className="text-sm py-6 text-center rounded-xl" style={{ color: COLORS.inkSoft, backgroundColor: "#F2ECE2" }}>Nenhum cliente cadastrado aqui</p>
+        <p className="text-sm py-6 text-center rounded-xl" style={{ color: COLORS.inkSoft, backgroundColor: "#F2ECE2" }}>
+          {filtroVenc ? "Nenhum cliente neste filtro de vencimento" : "Nenhum cliente cadastrado aqui"}
+        </p>
       )}
       <div className="space-y-2">
         {lista.map((c) => (
