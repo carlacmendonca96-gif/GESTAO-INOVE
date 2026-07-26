@@ -916,12 +916,17 @@ function NegocioFinanceiro({ financeiro, onAdd, onEdit, onDelete, onMarcarPago }
   const [showAdd, setShowAdd] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [filtro, setFiltro] = useState(null);
+  const [refMes, setRefMes] = useState(monthKey(todayStr()));
 
-  const totalRecebido = financeiro.filter((f) => f.pago).reduce((s, f) => s + (f.valorPago || 0), 0);
-  const totalAReceber = financeiro.filter((f) => !f.pago).reduce((s, f) => s + (f.valorPago || 0), 0);
-  const totalCusto = financeiro.reduce((s, f) => s + (f.custo || 0), 0);
+  // Regime de caixa: o recebido conta no mês da baixa (data do lançamento já pago).
+  // Os pendentes "carregam" para frente: aparecem mês a mês até serem recebidos.
+  const recebidosDoMes = financeiro.filter((f) => f.pago && monthKey(f.data) === refMes);
+  const pendentesDoMes = financeiro.filter((f) => !f.pago && monthKey(f.data) <= refMes);
+  const totalRecebido = recebidosDoMes.reduce((s, f) => s + (f.valorPago || 0), 0);
+  const totalAReceber = pendentesDoMes.reduce((s, f) => s + (f.valorPago || 0), 0);
+  const totalCusto = recebidosDoMes.reduce((s, f) => s + (f.custo || 0), 0);
   const lucro = totalRecebido - totalCusto;
-  const sorted = [...financeiro].sort((a, b) => (b.data || "").localeCompare(a.data || ""));
+  const sorted = [...recebidosDoMes, ...pendentesDoMes].sort((a, b) => (b.data || "").localeCompare(a.data || ""));
 
   let visiveis = sorted;
   if (filtro === "pago") visiveis = sorted.filter((f) => f.pago);
@@ -936,6 +941,22 @@ function NegocioFinanceiro({ financeiro, onAdd, onEdit, onDelete, onMarcarPago }
         <button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium"
                 style={{ backgroundColor: COLORS.burgundy, color: "#fff" }}>
           <Plus size={16} color="#fff" /> Lançar
+        </button>
+      </div>
+
+      <div className="rounded-xl p-2 mb-3 flex items-center justify-between" style={{ backgroundColor: COLORS.panel, border: `1px solid ${COLORS.line}` }}>
+        <button onClick={() => setRefMes((m) => addMonths(m, -1))} className="p-1.5 rounded-lg hover:bg-black/5" title="Mês anterior">
+          <ChevronLeft size={18} color={COLORS.inkSoft} />
+        </button>
+        <div className="text-center leading-tight">
+          <div className="text-[11px]" style={{ color: COLORS.inkSoft }}>Mês</div>
+          <div className="text-sm font-semibold capitalize" style={{ color: COLORS.ink }}>{monthLabelShort(refMes)}</div>
+          {refMes !== monthKey(todayStr()) && (
+            <button onClick={() => setRefMes(monthKey(todayStr()))} className="text-[10px] underline" style={{ color: COLORS.inkSoft }}>voltar ao mês atual</button>
+          )}
+        </div>
+        <button onClick={() => setRefMes((m) => addMonths(m, 1))} className="p-1.5 rounded-lg hover:bg-black/5" title="Próximo mês">
+          <ChevronRight size={18} color={COLORS.inkSoft} />
         </button>
       </div>
 
@@ -958,7 +979,7 @@ function NegocioFinanceiro({ financeiro, onAdd, onEdit, onDelete, onMarcarPago }
       )}
 
       {visiveis.length === 0 && (
-        <p className="text-sm py-6 text-center rounded-xl" style={{ color: COLORS.inkSoft, backgroundColor: "#F2ECE2" }}>Nenhum lançamento aqui</p>
+        <p className="text-sm py-6 text-center rounded-xl" style={{ color: COLORS.inkSoft, backgroundColor: "#F2ECE2" }}>Nenhum lançamento em {monthLabelShort(refMes)}</p>
       )}
       <div className="space-y-2">
         {visiveis.map((f) => (
@@ -972,7 +993,7 @@ function NegocioFinanceiro({ financeiro, onAdd, onEdit, onDelete, onMarcarPago }
                     <span className="px-2 py-0.5 rounded-full text-xs font-medium"
                           style={{ backgroundColor: COLORS.camel + "26", color: COLORS.camelDeep }}>Pendente</span>
                   )}
-                  <span className="text-xs" style={{ color: COLORS.inkSoft }}>{f.forma ? f.forma + " · " : ""}{fmtDatePt(f.data)}</span>
+                  <span className="text-xs" style={{ color: COLORS.inkSoft }}>{f.forma ? f.forma + " · " : ""}{f.pago ? "recebido em " : "lançado em "}{fmtDatePt(f.data)}</span>
                 </div>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
@@ -2044,8 +2065,9 @@ function App() {
     catch (e) { console.error(e); setErro("Não foi possível excluir."); }
   };
   const marcarPago = async (id) => {
-    setFinanceiro((prev) => prev.map((f) => (f.id === id ? { ...f, pago: true } : f)));
-    try { await apiPatch(`/api/financeiro/${id}`, { pago: true }); }
+    const hoje = todayStr();
+    setFinanceiro((prev) => prev.map((f) => (f.id === id ? { ...f, pago: true, data: hoje } : f)));
+    try { await apiPatch(`/api/financeiro/${id}`, { pago: true, data: hoje }); }
     catch (e) { console.error(e); setErro("Não foi possível atualizar o pagamento."); }
   };
   const editFinanceiro = async (item) => {
