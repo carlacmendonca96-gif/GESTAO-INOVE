@@ -67,10 +67,111 @@ app.get("/api/verificar", (req, res) => {
 
 // Middleware: exige token válido em todas as rotas /api/* (menos login e verificar)
 app.use("/api", (req, res, next) => {
-  if (req.path === "/login" || req.path === "/verificar") return next();
+  if (req.path === "/login" || req.path === "/verificar" || req.path === "/google/callback") return next();
   const token = (req.headers.authorization || "").replace("Bearer ", "");
   if (tokenValido(token)) return next();
   return res.status(401).json({ error: "Não autorizado." });
+});
+
+// ---------- INTEGRAÇÃO GOOGLE AGENDA ----------
+const { google } = require("googleapis");
+
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || "https://gestao-inove.onrender.com/api/google/callback";
+const GOOGLE_SCOPES = ["https://www.googleapis.com/auth/calendar"];
+
+function googleConfigurado() {
+  return Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET);
+}
+function novoOAuthClient() {
+  return new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI);
+}
+
+// Guarda os tokens do Google numa linha única (id=1). Mantém o refresh_token se um novo não vier.
+async function salvarTokensGoogle(tokens) {
+  await pool.query(
+    `INSERT INTO google_auth (id, access_token, refresh_token, expiry_date, updated_at)
+     VALUES (1, $1, $2, $3, now())
+     ON CONFLICT (id) DO UPDATE SET
+       access_token = EXCLUDED.access_token,
+       refresh_token = COALESCE(EXCLUDED.refresh_token, google_auth.refresh_token),
+       expiry_date = EXCLUDED.expiry_date,
+       updated_at = now()`,
+    [tokens.access_token || null, tokens.refresh_token || null, tokens.expiry_date || null]
+  );
+}
+async function carregarTokensGoogle() {
+  const { rows } = await pool.query("SELECT * FROM google_auth WHERE id = 1");
+  return rows[0] || null;
+}
+
+// "state" assinado (reaproveita o SESSION_SECRET) para proteger o callback contra chamadas externas
+function gerarState() {
+  const exp = Date.now() + 10 * 60 * 1000; // 10 min
+  const payload = "google." + exp;
+  const assinatura = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("hex");
+  return payload + "." + assinatura;
+}
+function stateValido(state) {
+  if (!state) return false;
+  const partes = String(state).split(".");
+  if (partes.length !== 3) return false;
+  const payload = partes[0] + "." + partes[1];
+  const esperada = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("hex");
+  if (partes[2] !== esperada) return false;
+  return Date.now() < Number(partes[1]);
+}
+
+// Inicia a conexão: devolve a URL de autorização do Google (protegida pelo nosso login)
+app.get("/api/google/connect", (req, res) => {
+  if (!googleConfigurado()) return res.status(500).json({ error: "Google não configurado no servidor." });
+  const oauth2 = novoOAuthClient();
+  const url = oauth2.generateAuthUrl({
+    access_type: "offline",
+    prompt: "consent",
+    scope: GOOGLE_SCOPES,
+    state: gerarState(),
+  });
+  res.json({ url });
+});
+
+// Callback do Google (isento do middleware: o Google redireciona o navegador sem o nosso token)
+app.get("/api/google/callback", async (req, res) => {
+  const { code, state } = req.query;
+  if (!stateValido(state)) return res.status(400).send("Link expirado ou inválido. Volte ao painel e clique em conectar novamente.");
+  if (!code) return res.status(400).send("Código ausente.");
+  try {
+    const oauth2 = novoOAuthClient();
+    const { tokens } = await oauth2.getToken(code);
+    await salvarTokensGoogle(tokens);
+    res.send("<html><body style='font-family:sans-serif;text-align:center;padding:48px'><h2>&#9989; Google Agenda conectado!</h2><p>Pode fechar esta aba e voltar ao painel.</p></body></html>");
+  } catch (e) {
+    console.error(e);
+    res.status(500).send("Falha ao conectar com o Google. Volte ao painel e tente novamente.");
+  }
+});
+
+// Status da conexão
+app.get("/api/google/status", async (req, res) => {
+  try {
+    const t = await carregarTokensGoogle();
+    res.json({ conectado: Boolean(t && t.refresh_token), configurado: googleConfigurado() });
+  } catch (e) {
+    console.error(e);
+    res.json({ conectado: false, configurado: googleConfigurado() });
+  }
+});
+
+// Desconectar
+app.post("/api/google/disconnect", async (req, res) => {
+  try {
+    await pool.query("DELETE FROM google_auth WHERE id = 1");
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao desconectar." });
+  }
 });
 
 // ---------- ATENDIMENTOS ----------

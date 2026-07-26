@@ -738,6 +738,58 @@ function AddAgendamentoModal({ dateStr, onClose, onSave }) {
   );
 }
 
+function GoogleAgendaConexao() {
+  const [estado, setEstado] = useState(null); // null=carregando, {conectado, configurado}
+  const [ocupado, setOcupado] = useState(false);
+
+  const carregarStatus = async () => {
+    try { setEstado(await apiGet("/api/google/status")); }
+    catch (e) { setEstado({ conectado: false, configurado: false, erro: true }); }
+  };
+  useEffect(() => { carregarStatus(); }, []);
+
+  const conectar = async () => {
+    setOcupado(true);
+    try {
+      const { url } = await apiGet("/api/google/connect");
+      window.open(url, "_blank");
+    } catch (e) { console.error(e); }
+    setOcupado(false);
+  };
+  const desconectar = async () => {
+    setOcupado(true);
+    try { await apiPost("/api/google/disconnect", {}); await carregarStatus(); }
+    catch (e) { console.error(e); }
+    setOcupado(false);
+  };
+
+  if (!estado) return null;
+
+  return (
+    <div className="rounded-xl p-3 mb-4 flex items-center justify-between gap-2" style={{ backgroundColor: COLORS.panel, border: `1px solid ${COLORS.line}` }}>
+      <div className="flex items-center gap-2 min-w-0">
+        <CalendarPlus size={16} color={estado.conectado ? COLORS.green : COLORS.inkSoft} />
+        <div className="min-w-0">
+          <div className="text-xs font-semibold" style={{ color: COLORS.ink }}>Google Agenda</div>
+          <div className="text-[11px]" style={{ color: estado.conectado ? COLORS.green : COLORS.inkSoft }}>
+            {estado.conectado ? "Conectado" : (estado.configurado ? "Não conectado" : "Indisponível no servidor")}
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        {estado.conectado ? (
+          <button onClick={desconectar} disabled={ocupado} className="text-xs font-medium px-2.5 py-1.5 rounded-lg" style={{ color: COLORS.red, backgroundColor: COLORS.red + "12" }}>Desconectar</button>
+        ) : (
+          <button onClick={conectar} disabled={ocupado || !estado.configurado} className="text-xs font-medium px-2.5 py-1.5 rounded-lg" style={{ color: "#fff", backgroundColor: estado.configurado ? COLORS.burgundy : COLORS.inkSoft }}>{ocupado ? "Abrindo…" : "Conectar"}</button>
+        )}
+        <button onClick={carregarStatus} disabled={ocupado} className="p-1.5 rounded-lg hover:bg-black/5" title="Atualizar status">
+          <RefreshCw size={13} color={COLORS.inkSoft} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CalendarView({ agendamentos, onAdd, onDelete }) {
   const [cursor, setCursor] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState(todayStr());
@@ -760,6 +812,8 @@ function CalendarView({ agendamentos, onAdd, onDelete }) {
   return (
     <div>
       <h2 className="text-lg font-semibold mb-4" style={{ color: COLORS.ink, fontFamily: "Georgia, serif" }}>Calendário</h2>
+
+      <GoogleAgendaConexao />
 
       <div className="rounded-2xl p-3 mb-4" style={{ backgroundColor: COLORS.panel, border: `1px solid ${COLORS.line}` }}>
         <div className="flex items-center justify-between mb-3 px-1">
