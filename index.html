@@ -919,9 +919,11 @@ function NegocioFinanceiro({ financeiro, onAdd, onEdit, onDelete, onMarcarPago }
   const [refMes, setRefMes] = useState(monthKey(todayStr()));
 
   // Regime de caixa: o recebido conta no mês da baixa (data do lançamento já pago).
-  // Os pendentes "carregam" para frente: aparecem mês a mês até serem recebidos.
+  // Os pendentes em aberto aparecem juntos apenas no mês atual, até serem recebidos
+  // (não se repetem nos outros meses ao navegar).
+  const mesAtual = monthKey(todayStr());
   const recebidosDoMes = financeiro.filter((f) => f.pago && monthKey(f.data) === refMes);
-  const pendentesDoMes = financeiro.filter((f) => !f.pago && monthKey(f.data) <= refMes);
+  const pendentesDoMes = refMes === mesAtual ? financeiro.filter((f) => !f.pago) : [];
   const totalRecebido = recebidosDoMes.reduce((s, f) => s + (f.valorPago || 0), 0);
   const totalAReceber = pendentesDoMes.reduce((s, f) => s + (f.valorPago || 0), 0);
   const totalCusto = recebidosDoMes.reduce((s, f) => s + (f.custo || 0), 0);
@@ -970,6 +972,12 @@ function NegocioFinanceiro({ financeiro, onAdd, onEdit, onDelete, onMarcarPago }
         <Card titulo="Lucro líquido" valor={lucro} cor={COLORS.burgundy} Icon={Wallet} destaque
               onClick={() => setFiltro(null)} />
       </div>
+
+      {refMes !== mesAtual && financeiro.filter((f) => !f.pago).length > 0 && (
+        <p className="text-[11px] mb-3 px-1" style={{ color: COLORS.inkSoft }}>
+          Os pendentes em aberto aparecem em "A receber" no mês atual ({monthLabelShort(mesAtual)}).
+        </p>
+      )}
 
       {filtro && (
         <button onClick={() => setFiltro(null)} className="mb-3 flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg"
