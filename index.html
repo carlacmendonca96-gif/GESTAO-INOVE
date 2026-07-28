@@ -998,9 +998,12 @@ function Card({ titulo, valor, cor, Icon, destaque, onClick, ativo }) {
   );
 }
 
-function NegocioFinanceiro({ financeiro, onAdd, onEdit, onDelete, onMarcarPago }) {
+function NegocioFinanceiro({ financeiro, onAdd, onEdit, onDelete, onMarcarPago,
+                             despesas, onAddDespesa, onEditDespesa, onDeleteDespesa }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
+  const [showAddGasto, setShowAddGasto] = useState(false);
+  const [editingGasto, setEditingGasto] = useState(null);
   const [filtro, setFiltro] = useState(null);
   const [refMes, setRefMes] = useState(monthKey(todayStr()));
 
@@ -1013,8 +1016,20 @@ function NegocioFinanceiro({ financeiro, onAdd, onEdit, onDelete, onMarcarPago }
   const totalRecebido = recebidosDoMes.reduce((s, f) => s + (f.valorPago || 0), 0);
   const totalAReceber = pendentesDoMes.reduce((s, f) => s + (f.valorPago || 0), 0);
   const totalCusto = recebidosDoMes.reduce((s, f) => s + (f.custo || 0), 0);
-  const lucro = totalRecebido - totalCusto;
   const sorted = [...recebidosDoMes, ...pendentesDoMes].sort((a, b) => (b.data || "").localeCompare(a.data || ""));
+
+  // Gastos da empresa (despesas com tipo negocio_*). Avulso conta só no mês; conta fixa recorre a partir do início.
+  const ehGastoNegocio = (d) => d.tipo === "negocio_avulso" || d.tipo === "negocio_fixa";
+  const gastoNoMes = (d, mk) => {
+    if (!ehGastoNegocio(d)) return false;
+    if (d.tipo === "negocio_fixa") return monthKey(d.data) <= mk;
+    return monthKey(d.data) === mk;
+  };
+  const gastosDoMes = (despesas || []).filter((d) => gastoNoMes(d, refMes))
+    .sort((a, b) => (b.data || "").localeCompare(a.data || ""));
+  const totalGastosNegocio = gastosDoMes.reduce((s, d) => s + (d.valor || 0), 0);
+
+  const lucro = totalRecebido - totalCusto - totalGastosNegocio;
 
   let visiveis = sorted;
   if (filtro === "pago") visiveis = sorted.filter((f) => f.pago);
@@ -1053,9 +1068,12 @@ function NegocioFinanceiro({ financeiro, onAdd, onEdit, onDelete, onMarcarPago }
               onClick={() => setFiltro(filtro === "pago" ? null : "pago")} ativo={filtro === "pago"} />
         <Card titulo="A receber" valor={totalAReceber} cor={COLORS.camelDeep} Icon={Hourglass}
               onClick={() => setFiltro(filtro === "pendente" ? null : "pendente")} ativo={filtro === "pendente"} />
-        <Card titulo="Custo" valor={totalCusto} cor={COLORS.red} Icon={TrendingDown}
+        <Card titulo="Custo dos atendimentos" valor={totalCusto} cor={COLORS.red} Icon={TrendingDown}
               onClick={() => setFiltro(filtro === "custo" ? null : "custo")} ativo={filtro === "custo"} />
-        <Card titulo="Lucro líquido" valor={lucro} cor={COLORS.burgundy} Icon={Wallet} destaque
+        <Card titulo="Gastos da empresa" valor={totalGastosNegocio} cor={COLORS.slate} Icon={Receipt} />
+      </div>
+      <div className="mb-3">
+        <Card titulo="Lucro líquido (recebido − custos − gastos)" valor={lucro} cor={COLORS.burgundy} Icon={Wallet} destaque
               onClick={() => setFiltro(null)} />
       </div>
 
@@ -1072,6 +1090,10 @@ function NegocioFinanceiro({ financeiro, onAdd, onEdit, onDelete, onMarcarPago }
         </button>
       )}
 
+      <div className="flex items-center gap-1.5 mb-2 mt-1">
+        <TrendingUp size={15} color={COLORS.green} />
+        <h3 className="text-sm font-semibold" style={{ color: COLORS.ink }}>Recebimentos · {monthLabelShort(refMes)}</h3>
+      </div>
       {visiveis.length === 0 && (
         <p className="text-sm py-6 text-center rounded-xl" style={{ color: COLORS.inkSoft, backgroundColor: "#F2ECE2" }}>Nenhum lançamento em {monthLabelShort(refMes)}</p>
       )}
@@ -1132,8 +1154,45 @@ function NegocioFinanceiro({ financeiro, onAdd, onEdit, onDelete, onMarcarPago }
         ))}
       </div>
 
+      <div className="flex items-center justify-between mt-5 mb-3">
+        <div className="flex items-center gap-1.5">
+          <Receipt size={15} color={COLORS.slate} />
+          <h3 className="text-sm font-semibold" style={{ color: COLORS.ink }}>Gastos da empresa · {monthLabelShort(refMes)}</h3>
+        </div>
+        <button onClick={() => setShowAddGasto(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+                style={{ backgroundColor: COLORS.slate + "1A", color: COLORS.slate }}>
+          <Plus size={13} color={COLORS.slate} /> Gasto
+        </button>
+      </div>
+      {gastosDoMes.length === 0 && (
+        <p className="text-sm py-6 text-center rounded-xl" style={{ color: COLORS.inkSoft, backgroundColor: "#F2ECE2" }}>Nenhum gasto da empresa em {monthLabelShort(refMes)}</p>
+      )}
+      <div className="space-y-2">
+        {gastosDoMes.map((d) => (
+          <div key={d.id} className="rounded-xl p-3 flex items-center gap-3" style={{ backgroundColor: COLORS.panel, border: `1px solid ${COLORS.line}` }}>
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: COLORS.slate + "1A" }}>
+              {d.tipo === "negocio_fixa" ? <Repeat size={16} color={COLORS.slate} /> : <Receipt size={16} color={COLORS.slate} />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold truncate" style={{ color: COLORS.ink }}>{d.titulo}</div>
+              <div className="text-xs" style={{ color: COLORS.inkSoft }}>{d.tipo === "negocio_fixa" ? "Conta fixa" : "Gasto avulso"} · {fmtDatePt(d.data)}{d.forma ? ` · ${d.forma}` : ""}</div>
+              {d.notas && <p className="text-xs mt-0.5" style={{ color: COLORS.inkSoft }}>{d.notas}</p>}
+            </div>
+            <div className="text-sm font-bold flex-shrink-0" style={{ color: COLORS.red, fontFamily: "ui-monospace, monospace" }}>− {fmtMoney(d.valor)}</div>
+            <button onClick={() => setEditingGasto(d)} className="p-1.5 rounded-lg hover:bg-black/5 flex-shrink-0" title="Editar">
+              <PenLine size={13} color={COLORS.inkSoft} />
+            </button>
+            <button onClick={() => onDeleteDespesa(d.id)} className="p-1.5 rounded-lg hover:bg-black/5 flex-shrink-0" title="Excluir">
+              <Trash2 size={14} color={COLORS.inkSoft} />
+            </button>
+          </div>
+        ))}
+      </div>
+
       {showAdd && <AddFinanceModal onClose={() => setShowAdd(false)} onSave={onAdd} />}
       {editingItem && <EditFinanceModal item={editingItem} onClose={() => setEditingItem(null)} onSave={onEdit} />}
+      {showAddGasto && <AddGastoNegocioModal onClose={() => setShowAddGasto(false)} onSave={onAddDespesa} />}
+      {editingGasto && <EditGastoNegocioModal item={editingGasto} onClose={() => setEditingGasto(null)} onSave={onEditDespesa} />}
     </div>
   );
 }
@@ -1273,6 +1332,26 @@ function EditDespesaModal({ item, onClose, onSave }) {
   return (
     <Modal title="Editar despesa" onClose={onClose}>
       <DespesaForm item={item} submitLabel="Salvar alterações" onSubmit={(data) => { onSave({ ...item, ...data }); onClose(); }} />
+    </Modal>
+  );
+}
+
+// Gastos da empresa: reaproveitam o formulário de despesa, mas guardam o tipo prefixado com "negocio_".
+function AddGastoNegocioModal({ onClose, onSave }) {
+  return (
+    <Modal title="Novo gasto da empresa" onClose={onClose}>
+      <DespesaForm submitLabel="Salvar gasto"
+                   onSubmit={(data) => { onSave({ id: uid(), ...data, tipo: "negocio_" + data.tipo }); onClose(); }} />
+    </Modal>
+  );
+}
+
+function EditGastoNegocioModal({ item, onClose, onSave }) {
+  const base = { ...item, tipo: (item.tipo || "negocio_avulso").replace("negocio_", "") };
+  return (
+    <Modal title="Editar gasto da empresa" onClose={onClose}>
+      <DespesaForm item={base} submitLabel="Salvar alterações"
+                   onSubmit={(data) => { onSave({ ...item, ...data, tipo: "negocio_" + data.tipo }); onClose(); }} />
     </Modal>
   );
 }
@@ -1754,7 +1833,8 @@ function FinanceView({ financeiro, onAddFinanceiro, onEditFinanceiro, onDeleteFi
 
       {subTab === "negocio" && (
         <NegocioFinanceiro financeiro={financeiro} onAdd={onAddFinanceiro} onEdit={onEditFinanceiro}
-                            onDelete={onDeleteFinanceiro} onMarcarPago={onMarcarPago} />
+                            onDelete={onDeleteFinanceiro} onMarcarPago={onMarcarPago}
+                            despesas={despesas} onAddDespesa={onAddDespesa} onEditDespesa={onEditDespesa} onDeleteDespesa={onDeleteDespesa} />
       )}
       {subTab === "pessoal" && (
         <DespesasView despesas={despesas} onAdd={onAddDespesa} onEdit={onEditDespesa} onDelete={onDeleteDespesa}
