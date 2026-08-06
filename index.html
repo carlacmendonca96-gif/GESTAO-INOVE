@@ -87,6 +87,7 @@ const Bell = (p) => <Svg {...p}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3
 const Filter = (p) => <Svg {...p}><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></Svg>;
 const LogOut = (p) => <Svg {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></Svg>;
 const MessageCircle = (p) => <Svg {...p}><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></Svg>;
+const Download = (p) => <Svg {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></Svg>;
 
 // ====== DADOS FIXOS ======
 const STATUSES = [
@@ -217,6 +218,30 @@ function proximoVencimento(dataInicioStr, dataVencimentoStr) {
   const dias = Math.round((venc - hoje) / 86400000);
   return { venc, dias };
 }
+// ====== BACKUP / EXPORTAÇÃO ======
+function baixarArquivo(nomeArquivo, conteudo, tipo) {
+  const blob = new Blob(["﻿" + conteudo], { type: tipo + ";charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = nomeArquivo;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function paraCSV(linhas, colunas) {
+  const escapar = (v) => {
+    if (v == null) return "";
+    const s = String(v).replace(/"/g, '""');
+    return `"${s}"`;
+  };
+  const cab = colunas.map((c) => escapar(c.titulo)).join(";");
+  const corpo = linhas.map((l) => colunas.map((c) => escapar(c.valor(l))).join(";")).join("\n");
+  return cab + "\n" + corpo;
+}
+function carimboData() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function categoriaInfo(k) { return CATEGORIAS.find((c) => c.key === k) || CATEGORIAS[0]; }
 function subtipoLabel(cat, sub) {
   const found = (SUBTIPOS[cat] || []).find((s) => s.key === sub);
@@ -2187,6 +2212,119 @@ function ProximosVencimentos({ clientes }) {
   );
 }
 
+// ====== BACKUP DOS DADOS ======
+function BackupModal({ dados, onClose }) {
+  const { atendimentos, agendamentos, financeiro, despesas, cartoes, comprasCartao, clientes } = dados;
+
+  const baixarJSON = () => {
+    const pacote = {
+      geradoEm: new Date().toISOString(),
+      atendimentos, agendamentos, financeiro, despesas, cartoes, comprasCartao, clientes,
+      telefonesWhatsApp: getTelefones(),
+    };
+    baixarArquivo(`backup-inove-${carimboData()}.json`, JSON.stringify(pacote, null, 2), "application/json");
+  };
+
+  const csvClientes = () => baixarArquivo(`clientes-${carimboData()}.csv`, paraCSV(clientes, [
+    { titulo: "Nome", valor: (c) => c.nome },
+    { titulo: "Categoria", valor: (c) => categoriaInfo(c.categoria).label },
+    { titulo: "Tipo", valor: (c) => subtipoLabel(c.categoria, c.subtipo) },
+    { titulo: "Data de início", valor: (c) => fmtDatePt(c.dataInicio) },
+    { titulo: "Vencimento", valor: (c) => fmtDatePt(c.dataVencimento) },
+    { titulo: "WhatsApp", valor: (c) => getTelefone(c.nome) },
+    { titulo: "Observações", valor: (c) => c.notas },
+  ]), "text/csv");
+
+  const csvFinanceiro = () => baixarArquivo(`financeiro-${carimboData()}.csv`, paraCSV(financeiro, [
+    { titulo: "Cliente", valor: (f) => f.cliente },
+    { titulo: "Categoria", valor: (f) => categoriaInfo(f.categoria).label },
+    { titulo: "Tipo", valor: (f) => subtipoLabel(f.categoria, f.subtipo) },
+    { titulo: "Valor", valor: (f) => (f.valorPago || 0).toFixed(2).replace(".", ",") },
+    { titulo: "Custo", valor: (f) => (f.custo || 0).toFixed(2).replace(".", ",") },
+    { titulo: "Situação", valor: (f) => (f.pago ? "Recebido" : "A receber") },
+    { titulo: "Forma", valor: (f) => f.forma },
+    { titulo: "Data", valor: (f) => fmtDatePt(f.data) },
+  ]), "text/csv");
+
+  const csvAtendimentos = () => baixarArquivo(`atendimentos-${carimboData()}.csv`, paraCSV(atendimentos, [
+    { titulo: "Cliente", valor: (a) => a.cliente },
+    { titulo: "Categoria", valor: (a) => categoriaInfo(a.categoria).label },
+    { titulo: "Tipo", valor: (a) => subtipoLabel(a.categoria, a.subtipo) },
+    { titulo: "Seguradora", valor: (a) => a.seguradora },
+    { titulo: "Valor", valor: (a) => (a.valor != null ? a.valor.toFixed(2).replace(".", ",") : "") },
+    { titulo: "Comissão (%)", valor: (a) => (a.comissao != null ? a.comissao : "") },
+    { titulo: "Situação", valor: (a) => a.pagamento },
+    { titulo: "Status", valor: (a) => (STATUSES.find((s) => s.key === a.status) || {}).label || a.status },
+    { titulo: "Agendamento", valor: (a) => fmtDatePt(a.dataAgendamento) },
+    { titulo: "Observações", valor: (a) => a.notas },
+  ]), "text/csv");
+
+  const csvDespesas = () => baixarArquivo(`despesas-${carimboData()}.csv`, paraCSV(despesas, [
+    { titulo: "Título", valor: (d) => d.titulo },
+    { titulo: "Tipo", valor: (d) => ({ avulso: "Gasto avulso (pessoal)", fixa: "Conta fixa (pessoal)",
+                                        negocio_avulso: "Gasto avulso (empresa)", negocio_fixa: "Conta fixa (empresa)" }[d.tipo] || d.tipo) },
+    { titulo: "Valor", valor: (d) => (d.valor || 0).toFixed(2).replace(".", ",") },
+    { titulo: "Data", valor: (d) => fmtDatePt(d.data) },
+    { titulo: "Forma", valor: (d) => d.forma },
+    { titulo: "Observações", valor: (d) => d.notas },
+  ]), "text/csv");
+
+  const csvCompras = () => baixarArquivo(`compras-cartao-${carimboData()}.csv`, paraCSV(comprasCartao, [
+    { titulo: "Cartão", valor: (c) => ((cartoes.find((ct) => ct.id === c.cartaoId) || {}).nome || "") },
+    { titulo: "Descrição", valor: (c) => c.descricao },
+    { titulo: "Valor da parcela", valor: (c) => (c.valorParcela || 0).toFixed(2).replace(".", ",") },
+    { titulo: "Parcelas", valor: (c) => c.parcelas },
+    { titulo: "Data da compra", valor: (c) => fmtDatePt(c.dataCompra) },
+    { titulo: "Observações", valor: (c) => c.notas },
+  ]), "text/csv");
+
+  const linhas = [
+    ["Atendimentos", atendimentos.length, csvAtendimentos],
+    ["Lançamentos do financeiro", financeiro.length, csvFinanceiro],
+    ["Clientes", clientes.length, csvClientes],
+    ["Despesas e gastos", despesas.length, csvDespesas],
+    ["Compras no cartão", comprasCartao.length, csvCompras],
+  ];
+
+  return (
+    <Modal title="Backup dos dados" onClose={onClose}>
+      <div className="rounded-xl p-3 mb-3" style={{ backgroundColor: "#F2ECE2" }}>
+        <p className="text-xs mb-2" style={{ color: COLORS.ink }}>
+          <strong>Cópia de segurança completa.</strong> Guarde este arquivo no seu computador — com ele dá para
+          restaurar tudo caso aconteça algo com o banco de dados.
+        </p>
+        <button onClick={baixarJSON} className="w-full py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2"
+                style={{ backgroundColor: COLORS.burgundy, color: "#fff" }}>
+          <Download size={15} color="#fff" /> Baixar backup completo
+        </button>
+      </div>
+
+      <div className="text-xs font-semibold mb-2" style={{ color: COLORS.inkSoft }}>Planilhas para abrir no Excel</div>
+      <div className="space-y-1.5">
+        {linhas.map(([titulo, qtd, acao]) => (
+          <div key={titulo} className="flex items-center justify-between rounded-xl p-2.5"
+               style={{ backgroundColor: COLORS.panel, border: `1px solid ${COLORS.line}` }}>
+            <div className="min-w-0">
+              <div className="text-sm font-medium truncate" style={{ color: COLORS.ink }}>{titulo}</div>
+              <div className="text-[11px]" style={{ color: COLORS.inkSoft }}>{qtd} registro(s)</div>
+            </div>
+            <button onClick={acao} disabled={qtd === 0}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium flex-shrink-0"
+                    style={{ backgroundColor: qtd === 0 ? "#F2ECE2" : COLORS.camel + "1A",
+                             color: qtd === 0 ? COLORS.inkSoft : COLORS.camelDeep }}>
+              <Download size={13} color={qtd === 0 ? COLORS.inkSoft : COLORS.camelDeep} /> Baixar
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <p className="text-[11px] mt-3" style={{ color: COLORS.inkSoft }}>
+        Dica: baixe o backup completo uma vez por semana e guarde numa pasta segura (ou no seu e-mail).
+      </p>
+    </Modal>
+  );
+}
+
 // ====== TELA DE LOGIN ======
 function TelaLogin({ onEntrar }) {
   const [usuario, setUsuario] = useState("");
@@ -2253,6 +2391,7 @@ function App() {
   const [comprasCartao, setComprasCartao] = useState([]);
   const [clientes, setClientes] = useState([]);
   const [mesKanban, setMesKanban] = useState(monthKey(todayStr()));
+  const [showBackup, setShowBackup] = useState(false);
 
   const carregarTudo = async () => {
     setLoading(true); setErro("");
@@ -2506,6 +2645,9 @@ function App() {
             <p className="text-[11px] leading-tight" style={{ color: COLORS.inkSoft }}>Seguros e Soluções Financeiras · Certificação Digital</p>
           </div>
           <div className="ml-auto flex items-start gap-2">
+          <button onClick={() => setShowBackup(true)} className="p-2 rounded-lg hover:bg-black/5 flex-shrink-0" title="Backup dos dados">
+            <Download size={16} color={COLORS.inkSoft} />
+          </button>
           <button onClick={() => { SESSION_TOKEN = null; setLogado(false); }} className="p-2 rounded-lg hover:bg-black/5 flex-shrink-0" title="Sair">
             <LogOut size={16} color={COLORS.inkSoft} />
           </button>
@@ -2570,6 +2712,13 @@ function App() {
           <ClientesView clientes={clientes} onAdd={addCliente} onEdit={editCliente} onDelete={deleteCliente} />
         )}
       </div>
+
+      {showBackup && (
+        <BackupModal
+          dados={{ atendimentos, agendamentos, financeiro, despesas, cartoes, comprasCartao, clientes }}
+          onClose={() => setShowBackup(false)}
+        />
+      )}
     </div>
   );
 }
