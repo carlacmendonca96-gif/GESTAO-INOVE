@@ -126,6 +126,12 @@ const SUBTIPOS = {
     { key: "outro", label: "Outros" },
   ],
 };
+const SEGURADORAS = [
+  "Porto Seguro", "Azul Seguros", "Itaú Seguros", "Bradesco Seguros", "SulAmérica",
+  "Allianz", "Tokio Marine", "HDI Seguros", "Mapfre", "Zurich", "Aliro (ex-Liberty)",
+  "Sompo Seguros", "Suhai", "Youse", "Generali", "Chubb", "Alfa Seguros", "Pottencial",
+  "Akad", "Sancor", "Ezze Seguros",
+];
 const FORMAS_PAGAMENTO = ["Pix", "Cartão de crédito", "Cartão de débito", "Boleto", "Dinheiro"];
 const FORMAS_DESPESA = ["Dinheiro", "Pix", "Boleto", "Débito automático"];
 const TIPOS_DESPESA = [
@@ -284,6 +290,8 @@ function mapAtendimento(row) {
     dataAgendamento: row.data_agendamento ? String(row.data_agendamento).slice(0, 10) : "",
     horarioAgendamento: row.horario_agendamento || "",
     valor: row.valor != null ? parseFloat(row.valor) : null,
+    comissao: row.comissao != null ? parseFloat(row.comissao) : null,
+    seguradora: row.seguradora || "",
     pagamento: row.pagamento || "",
     status: row.status, notas: row.notas || "", criadoEm: row.criado_em,
   };
@@ -415,7 +423,7 @@ function CategoriaSubtipoPicker({ categoria, setCategoria, subtipo, setSubtipo }
 }
 
 // ====== ATENDIMENTOS ======
-function AtendimentoForm({ item, onSubmit, submitLabel }) {
+function AtendimentoForm({ item, onSubmit, submitLabel, comissaoInicial }) {
   const [cliente, setCliente] = useState(item ? item.cliente : "");
   const [categoria, setCategoria] = useState(item ? item.categoria : "seguro");
   const [subtipo, setSubtipo] = useState(item ? item.subtipo : SUBTIPOS.seguro[0].key);
@@ -423,9 +431,22 @@ function AtendimentoForm({ item, onSubmit, submitLabel }) {
   const [dataAgendamento, setDataAgendamento] = useState(item ? item.dataAgendamento : "");
   const [horarioAgendamento, setHorarioAgendamento] = useState(item ? item.horarioAgendamento : "");
   const [valor, setValor] = useState(item && item.valor != null ? String(item.valor) : "");
+  const [comissao, setComissao] = useState(
+    item && item.comissao != null ? String(item.comissao) : (comissaoInicial != null ? String(comissaoInicial) : "")
+  );
   const [pagamento, setPagamento] = useState(item && item.pagamento ? item.pagamento : "pago");
   const [forma, setForma] = useState(item && item.forma ? item.forma : FORMAS_PAGAMENTO[0]);
   const [notas, setNotas] = useState(item ? item.notas : "");
+  // Seguradora: se não estiver na lista, cai no campo livre ("Outra")
+  const seguradoraSalva = item && item.seguradora ? item.seguradora : "";
+  const naLista = SEGURADORAS.includes(seguradoraSalva);
+  const [seguradora, setSeguradora] = useState(seguradoraSalva && !naLista ? "__outra__" : seguradoraSalva);
+  const [seguradoraOutra, setSeguradoraOutra] = useState(seguradoraSalva && !naLista ? seguradoraSalva : "");
+
+  // No seguro, o que entra no financeiro é a comissão: valor do seguro × %
+  const valorNum = parseFloat(valor) || 0;
+  const comissaoNum = parseFloat(comissao) || 0;
+  const valorComissao = Math.round(valorNum * comissaoNum) / 100;
 
   const submit = () => {
     if (!cliente.trim()) return;
@@ -433,6 +454,11 @@ function AtendimentoForm({ item, onSubmit, submitLabel }) {
       cliente: cliente.trim(), categoria, subtipo,
       horarioSolicitado, dataAgendamento, horarioAgendamento,
       valor: valor ? parseFloat(valor) : null,
+      comissao: categoria === "seguro" && comissao ? comissaoNum : null,
+      valorComissao: categoria === "seguro" ? valorComissao : null,
+      seguradora: categoria === "seguro"
+        ? (seguradora === "__outra__" ? seguradoraOutra.trim() : seguradora)
+        : "",
       pagamento: valor ? pagamento : "",
       forma: valor && pagamento === "pago" ? forma : "",
       notas: notas.trim(),
@@ -464,6 +490,67 @@ function AtendimentoForm({ item, onSubmit, submitLabel }) {
         </div>
         <p className="text-[11px]" style={{ color: COLORS.inkSoft }}>Preenchendo data e horário, o compromisso vai {item ? "atualizado" : ""} automaticamente para o calendário.</p>
       </div>
+
+      {categoria === "seguro" && (
+        <div className="rounded-xl p-3 mb-3" style={{ backgroundColor: "#F2ECE2" }}>
+          <div className="flex items-center gap-1.5 mb-2">
+            <DollarSign size={14} color={COLORS.burgundy} />
+            <span className="text-xs font-semibold" style={{ color: COLORS.burgundy }}>Dados do seguro</span>
+          </div>
+          <Field label="Seguradora">
+            <select style={inputStyle} value={seguradora} onChange={(e) => setSeguradora(e.target.value)}>
+              <option value="">Selecione a seguradora</option>
+              {SEGURADORAS.map((s) => <option key={s} value={s}>{s}</option>)}
+              <option value="__outra__">Outra (digitar)</option>
+            </select>
+          </Field>
+          {seguradora === "__outra__" && (
+            <Field label="Qual seguradora?">
+              <input style={inputStyle} value={seguradoraOutra} onChange={(e) => setSeguradoraOutra(e.target.value)}
+                     placeholder="Nome da seguradora" />
+            </Field>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Valor do seguro (R$)">
+              <input type="number" step="0.01" inputMode="decimal" style={inputStyle} value={valor}
+                     onChange={(e) => setValor(e.target.value)} placeholder="0,00" />
+            </Field>
+            <Field label="Comissão (%)">
+              <input type="number" step="0.01" inputMode="decimal" style={inputStyle} value={comissao}
+                     onChange={(e) => setComissao(e.target.value)} placeholder="15" />
+            </Field>
+          </div>
+          {valorNum > 0 && comissaoNum > 0 && (
+            <div className="rounded-lg px-3 py-2 mb-2 flex items-center justify-between"
+                 style={{ backgroundColor: COLORS.green + "14" }}>
+              <span className="text-xs font-medium" style={{ color: COLORS.green }}>Você recebe (comissão)</span>
+              <span className="text-sm font-bold" style={{ color: COLORS.green, fontFamily: "ui-monospace, monospace" }}>{fmtMoney(valorComissao)}</span>
+            </div>
+          )}
+          {valorNum > 0 && comissaoNum > 0 && (
+            <React.Fragment>
+              <Field label="Situação">
+                <div className="flex gap-2">
+                  <Toggle ativo={pagamento === "pago"} cor={COLORS.green} onClick={() => setPagamento("pago")}>Pago</Toggle>
+                  <Toggle ativo={pagamento === "pendente"} cor={COLORS.camelDeep} onClick={() => setPagamento("pendente")}>Pendente</Toggle>
+                </div>
+              </Field>
+              {pagamento === "pago" && (
+                <Field label="Forma de pagamento">
+                  <select style={inputStyle} value={forma} onChange={(e) => setForma(e.target.value)}>
+                    {FORMAS_PAGAMENTO.map((f) => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                </Field>
+              )}
+              <p className="text-[11px]" style={{ color: COLORS.inkSoft }}>
+                {pagamento === "pago"
+                  ? `${fmtMoney(valorComissao)} será somado ao Recebido no financeiro.`
+                  : `${fmtMoney(valorComissao)} entra em A receber e não soma no Recebido até você marcar como pago.`}
+              </p>
+            </React.Fragment>
+          )}
+        </div>
+      )}
 
       {categoria === "certificado" && (
         <div className="rounded-xl p-3 mb-3" style={{ backgroundColor: "#F2ECE2" }}>
@@ -523,11 +610,12 @@ function AddAtendimentoModal({ onClose, onSave }) {
   );
 }
 
-function EditAtendimentoModal({ item, onClose, onSave }) {
+function EditAtendimentoModal({ item, onClose, onSave, comissaoInicial }) {
   return (
     <Modal title="Editar atendimento" onClose={onClose}>
       <AtendimentoForm
         item={item}
+        comissaoInicial={comissaoInicial}
         submitLabel="Salvar alterações"
         onSubmit={(data) => {
           onSave({ ...item, ...data });
@@ -538,8 +626,13 @@ function EditAtendimentoModal({ item, onClose, onSave }) {
   );
 }
 
-function AtendimentoCard({ item, onMove, onDelete, onEdit }) {
+function AtendimentoCard({ item, onMove, onDelete, onEdit, comissaoPct }) {
   const info = categoriaInfo(item.categoria);
+  // A comissão pode vir do próprio item (recém-salvo) ou calculada do financeiro (após recarregar)
+  const pct = item.comissao != null ? item.comissao : comissaoPct;
+  const comissaoValor = item.valorComissao != null
+    ? item.valorComissao
+    : (pct != null && item.valor ? Math.round(item.valor * pct) / 100 : null);
   return (
     <div className="rounded-xl p-3 mb-2.5 relative"
          style={{ backgroundColor: COLORS.panel, border: `1px solid ${COLORS.line}`, boxShadow: "0 1px 2px rgba(34,29,25,0.04)" }}>
@@ -552,7 +645,13 @@ function AtendimentoCard({ item, onMove, onDelete, onEdit }) {
           <PenLine size={13} color={COLORS.inkSoft} />
         </button>
       </div>
-      <div className="mb-2"><Stamp categoria={item.categoria} subtipo={item.subtipo} /></div>
+      <div className="mb-2 flex items-center gap-1.5 flex-wrap">
+        <Stamp categoria={item.categoria} subtipo={item.subtipo} />
+        {item.seguradora && (
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-medium"
+                style={{ backgroundColor: COLORS.slate + "1A", color: COLORS.slate }}>{item.seguradora}</span>
+        )}
+      </div>
       {item.horarioSolicitado && (
         <div className="flex items-center gap-1 text-xs mb-1" style={{ color: COLORS.inkSoft }}>
           <Clock size={12} color={COLORS.inkSoft} /> Solicitado às {item.horarioSolicitado}
@@ -564,8 +663,14 @@ function AtendimentoCard({ item, onMove, onDelete, onEdit }) {
         </div>
       )}
       {item.valor != null && item.valor > 0 && (
-        <div className="flex items-center gap-1.5 text-xs mb-1">
+        <div className="flex items-center gap-1.5 text-xs mb-1 flex-wrap">
           <span className="font-bold" style={{ color: COLORS.ink, fontFamily: "ui-monospace, monospace" }}>{fmtMoney(item.valor)}</span>
+          {item.categoria === "seguro" && comissaoValor > 0 && (
+            <span style={{ color: COLORS.inkSoft }}>
+              · comissão{pct ? ` ${pct}%` : ""}:{" "}
+              <span className="font-bold" style={{ color: COLORS.green, fontFamily: "ui-monospace, monospace" }}>{fmtMoney(comissaoValor)}</span>
+            </span>
+          )}
           <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium"
                 style={{ backgroundColor: item.pagamento === "pendente" ? COLORS.camel + "26" : COLORS.green + "1A",
                          color: item.pagamento === "pendente" ? COLORS.camelDeep : COLORS.green }}>
@@ -588,7 +693,16 @@ function AtendimentoCard({ item, onMove, onDelete, onEdit }) {
   );
 }
 
-function KanbanBoard({ atendimentos, onAdd, onMove, onDelete, onEdit, clientes, mesKanban }) {
+function KanbanBoard({ atendimentos, onAdd, onMove, onDelete, onEdit, clientes, mesKanban, financeiro }) {
+  // Ao editar um seguro, recupera a % de comissão a partir do lançamento financeiro vinculado
+  // (assim ela continua certa mesmo depois de recarregar a página).
+  const comissaoDoAtendimento = (at) => {
+    if (!at || at.categoria !== "seguro") return null;
+    if (at.comissao != null) return at.comissao;
+    const lanc = (financeiro || []).find((f) => f.atendimentoId === at.id);
+    if (!lanc || !at.valor) return null;
+    return Math.round((lanc.valorPago / at.valor) * 10000) / 100;
+  };
   const [showAdd, setShowAdd] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [showFiltros, setShowFiltros] = useState(false);
@@ -688,7 +802,7 @@ function KanbanBoard({ atendimentos, onAdd, onMove, onDelete, onEdit, clientes, 
               </div>
               <div className="rounded-2xl p-2" style={{ backgroundColor: "#F2ECE2", minHeight: 80 }}>
                 {items.length === 0 && <p className="text-xs text-center py-6" style={{ color: COLORS.inkSoft }}>Vazio</p>}
-                {items.map((item) => <AtendimentoCard key={item.id} item={item} onMove={onMove} onDelete={onDelete} onEdit={setEditingItem} />)}
+                {items.map((item) => <AtendimentoCard key={item.id} item={item} onMove={onMove} onDelete={onDelete} onEdit={setEditingItem} comissaoPct={comissaoDoAtendimento(item)} />)}
               </div>
             </div>
           );
@@ -699,6 +813,7 @@ function KanbanBoard({ atendimentos, onAdd, onMove, onDelete, onEdit, clientes, 
       {editingItem && (
         <EditAtendimentoModal
           item={editingItem}
+          comissaoInicial={comissaoDoAtendimento(editingItem)}
           onClose={() => setEditingItem(null)}
           onSave={onEdit}
         />
@@ -955,9 +1070,14 @@ function FinanceForm({ item, onSubmit, submitLabel }) {
           </select>
         </Field>
       )}
-      <Field label="Data">
+      <Field label={pago ? "Data do recebimento" : "Data prevista de recebimento"}>
         <input type="date" style={inputStyle} value={data} onChange={(e) => setData(e.target.value)} />
       </Field>
+      <p className="text-[11px] mb-3" style={{ color: COLORS.inkSoft }}>
+        {pago
+          ? "Entra em \"Recebido\" no mês desta data."
+          : "Fica em \"A receber\" no mês desta data (quando você vai receber). Ao marcar como pago, passa para \"Recebido\" no mês da baixa."}
+      </p>
       <PrimaryButton onClick={submit}>{submitLabel}</PrimaryButton>
     </React.Fragment>
   );
@@ -1008,11 +1128,9 @@ function NegocioFinanceiro({ financeiro, onAdd, onEdit, onDelete, onMarcarPago,
   const [refMes, setRefMes] = useState(monthKey(todayStr()));
 
   // Regime de caixa: o recebido conta no mês da baixa (data do lançamento já pago).
-  // Os pendentes em aberto aparecem juntos apenas no mês atual, até serem recebidos
-  // (não se repetem nos outros meses ao navegar).
-  const mesAtual = monthKey(todayStr());
+  // O pendente aparece no mês da DATA PREVISTA DE RECEBIMENTO (campo "data" do lançamento).
   const recebidosDoMes = financeiro.filter((f) => f.pago && monthKey(f.data) === refMes);
-  const pendentesDoMes = refMes === mesAtual ? financeiro.filter((f) => !f.pago) : [];
+  const pendentesDoMes = financeiro.filter((f) => !f.pago && monthKey(f.data) === refMes);
   const totalRecebido = recebidosDoMes.reduce((s, f) => s + (f.valorPago || 0), 0);
   const totalAReceber = pendentesDoMes.reduce((s, f) => s + (f.valorPago || 0), 0);
   const totalCusto = recebidosDoMes.reduce((s, f) => s + (f.custo || 0), 0);
@@ -1077,12 +1195,6 @@ function NegocioFinanceiro({ financeiro, onAdd, onEdit, onDelete, onMarcarPago,
               onClick={() => setFiltro(null)} />
       </div>
 
-      {refMes !== mesAtual && financeiro.filter((f) => !f.pago).length > 0 && (
-        <p className="text-[11px] mb-3 px-1" style={{ color: COLORS.inkSoft }}>
-          Os pendentes em aberto aparecem em "A receber" no mês atual ({monthLabelShort(mesAtual)}).
-        </p>
-      )}
-
       {filtro && (
         <button onClick={() => setFiltro(null)} className="mb-3 flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg"
                 style={{ backgroundColor: "#F2ECE2", color: COLORS.inkSoft }}>
@@ -1109,7 +1221,7 @@ function NegocioFinanceiro({ financeiro, onAdd, onEdit, onDelete, onMarcarPago,
                     <span className="px-2 py-0.5 rounded-full text-xs font-medium"
                           style={{ backgroundColor: COLORS.camel + "26", color: COLORS.camelDeep }}>Pendente</span>
                   )}
-                  <span className="text-xs" style={{ color: COLORS.inkSoft }}>{f.forma ? f.forma + " · " : ""}{f.pago ? "recebido em " : "lançado em "}{fmtDatePt(f.data)}</span>
+                  <span className="text-xs" style={{ color: COLORS.inkSoft }}>{f.forma ? f.forma + " · " : ""}{f.pago ? "recebido em " : "a receber em "}{fmtDatePt(f.data)}</span>
                 </div>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
@@ -2194,9 +2306,11 @@ function App() {
         setAgendamentos((prev) => [...prev, ag]);
         await apiPost("/api/agendamentos", ag);
       }
-      if (item.categoria === "certificado" && item.valor > 0) {
+      // No certificado entra o valor cheio; no seguro entra a comissão (valor × %)
+      const valorLanc = item.categoria === "seguro" ? (item.valorComissao || 0) : (item.valor || 0);
+      if ((item.categoria === "certificado" || item.categoria === "seguro") && valorLanc > 0) {
         const lanc = { id: uid(), cliente: item.cliente, categoria: item.categoria, subtipo: item.subtipo,
-                       valorPago: item.valor, custo: 0, forma: item.forma || "",
+                       valorPago: valorLanc, custo: 0, forma: item.forma || "",
                        data: item.dataAgendamento || todayStr(), pago: item.pagamento !== "pendente",
                        atendimentoId: item.id };
         setFinanceiro((prev) => [lanc, ...prev]);
@@ -2225,10 +2339,12 @@ function App() {
       }
 
       // Sincroniza o lançamento financeiro vinculado (cria se não existir, atualiza se já existir)
-      if (item.categoria === "certificado" && item.valor > 0) {
+      // No certificado entra o valor cheio; no seguro entra a comissão (valor × %)
+      const valorLancEdit = item.categoria === "seguro" ? (item.valorComissao || 0) : (item.valor || 0);
+      if ((item.categoria === "certificado" || item.categoria === "seguro") && valorLancEdit > 0) {
         const existenteF = financeiro.find((f) => f.atendimentoId === item.id);
         const dadosF = { cliente: item.cliente, categoria: item.categoria, subtipo: item.subtipo,
-                         valorPago: item.valor, forma: item.forma || "",
+                         valorPago: valorLancEdit, forma: item.forma || "",
                          data: item.dataAgendamento || (existenteF ? existenteF.data : todayStr()),
                          pago: item.pagamento !== "pendente" };
         if (existenteF) {
@@ -2439,7 +2555,7 @@ function App() {
             <button onClick={carregarTudo} className="font-semibold underline flex-shrink-0">Tentar de novo</button>
           </div>
         )}
-        {tab === "kanban" && <KanbanBoard atendimentos={atendimentos} onAdd={addAtendimento} onMove={moveAtendimento} onDelete={deleteAtendimento} onEdit={editAtendimento} clientes={clientes} mesKanban={mesKanban} />}
+        {tab === "kanban" && <KanbanBoard atendimentos={atendimentos} onAdd={addAtendimento} onMove={moveAtendimento} onDelete={deleteAtendimento} onEdit={editAtendimento} clientes={clientes} mesKanban={mesKanban} financeiro={financeiro} />}
         {tab === "calendario" && <CalendarView agendamentos={agendamentos} onAdd={addAgendamento} onDelete={deleteAgendamento} />}
         {tab === "financeiro" && (
           <FinanceView
