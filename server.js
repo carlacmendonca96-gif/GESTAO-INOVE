@@ -588,5 +588,95 @@ app.delete("/api/clientes/:id", async (req, res) => {
   }
 });
 
+// ---------- CONTAS PESSOAIS ----------
+app.get("/api/contas", async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT * FROM contas_pf ORDER BY nome");
+    res.json(rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao buscar contas" });
+  }
+});
+
+app.post("/api/contas", async (req, res) => {
+  const { id, nome, saldoInicial } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO contas_pf (id, nome, saldo_inicial) VALUES ($1,$2,$3) RETURNING *`,
+      [id, nome, saldoInicial || 0]
+    );
+    res.status(201).json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao criar conta" });
+  }
+});
+
+app.patch("/api/contas/:id", async (req, res) => {
+  const fields = { nome: req.body.nome, saldo_inicial: req.body.saldoInicial };
+  const keys = Object.keys(fields).filter((k) => fields[k] !== undefined);
+  if (keys.length === 0) return res.status(400).json({ error: "Nada para atualizar" });
+  const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
+  const values = keys.map((k) => fields[k]);
+  values.push(req.params.id);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE contas_pf SET ${setClause} WHERE id = $${values.length} RETURNING *`,
+      values
+    );
+    res.json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao atualizar conta" });
+  }
+});
+
+app.delete("/api/contas/:id", async (req, res) => {
+  try {
+    await pool.query("DELETE FROM contas_pf WHERE id = $1", [req.params.id]);
+    res.status(204).end();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao excluir conta" });
+  }
+});
+
+// ---------- MOVIMENTAÇÕES DAS CONTAS ----------
+app.get("/api/movimentacoes", async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT * FROM movimentacoes ORDER BY data DESC");
+    res.json(rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao buscar movimentações" });
+  }
+});
+
+app.post("/api/movimentacoes", async (req, res) => {
+  const { id, contaId, tipo, valor, descricao, data } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO movimentacoes (id, conta_id, tipo, valor, descricao, data)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [id, contaId, tipo, valor || 0, descricao || null, data]
+    );
+    res.status(201).json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao criar movimentação" });
+  }
+});
+
+app.delete("/api/movimentacoes/:id", async (req, res) => {
+  try {
+    await pool.query("DELETE FROM movimentacoes WHERE id = $1", [req.params.id]);
+    res.status(204).end();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Erro ao excluir movimentação" });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`API rodando na porta ${PORT}`));
