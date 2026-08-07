@@ -96,8 +96,44 @@ const STATUSES = [
   { key: "aguardando", label: "Aguardando retorno", color: COLORS.camel },
   { key: "recusado", label: "Cliente recusou", color: COLORS.red },
   { key: "aceito", label: "Cliente aceitou", color: COLORS.green },
-  { key: "finalizado", label: "Proposta finalizada", color: COLORS.burgundy },
 ];
+// A certificação digital tem um fluxo próprio, bem mais curto que o do seguro
+const STATUSES_CERT = [
+  { key: "solicitado", label: "Solicitado", color: COLORS.slate },
+  { key: "agendado", label: "Agendado", color: COLORS.camel },
+  { key: "emitido", label: "Emitido", color: COLORS.green },
+];
+function statusesDe(categoria) { return categoria === "certificado" ? STATUSES_CERT : STATUSES; }
+// Converte status antigos (do fluxo de seguro) para o fluxo de certificado,
+// para que nenhum atendimento já cadastrado suma da tela.
+function statusDoItem(a) {
+  if (!a) return "";
+  if (a.categoria === "certificado") {
+    if (a.status === "emitido" || a.status === "finalizado") return "emitido";
+    if (a.status === "agendado" || a.status === "aceito") return "agendado";
+    return "solicitado";
+  }
+  // "Proposta finalizada" saiu do quadro: o que estava nela passa a contar como aceito
+  if (a.status === "finalizado") return "aceito";
+  return a.status;
+}
+// Etapas em que o atendimento já está concluído (para parar de contar o tempo)
+function estaConcluido(a) {
+  var st = statusDoItem(a);
+  return st === "aceito" || st === "emitido" || st === "recusado";
+}
+function diasCorridos(dataStr) {
+  if (!dataStr) return null;
+  var p = String(dataStr).slice(0, 10).split("-");
+  if (p.length !== 3) return null;
+  var ini = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  var hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.round((hoje - ini) / 86400000));
+}
+function statusLabel(categoria, key) {
+  var s = statusesDe(categoria).find(function (x) { return x.key === key; });
+  return s ? s.label : key;
+}
 const CATEGORIAS = [
   { key: "seguro", label: "Seguro", color: COLORS.burgundy, icon: Shield },
   { key: "certificado", label: "Certificação Digital", color: COLORS.skyBlue, icon: ShieldCheck },
@@ -312,6 +348,7 @@ function mapAtendimento(row) {
   return {
     id: row.id, cliente: row.cliente, categoria: row.categoria, subtipo: row.subtipo,
     horarioSolicitado: row.horario_solicitado || "",
+    dataSolicitacao: row.data_solicitacao ? String(row.data_solicitacao).slice(0, 10) : "",
     dataAgendamento: row.data_agendamento ? String(row.data_agendamento).slice(0, 10) : "",
     horarioAgendamento: row.horario_agendamento || "",
     valor: row.valor != null ? parseFloat(row.valor) : null,
@@ -448,11 +485,15 @@ function CategoriaSubtipoPicker({ categoria, setCategoria, subtipo, setSubtipo }
 }
 
 // ====== ATENDIMENTOS ======
-function AtendimentoForm({ item, onSubmit, submitLabel, comissaoInicial }) {
+function AtendimentoForm({ item, onSubmit, submitLabel, comissaoInicial, categoriaInicial }) {
+  const catInicial = item ? item.categoria : (categoriaInicial || "seguro");
   const [cliente, setCliente] = useState(item ? item.cliente : "");
-  const [categoria, setCategoria] = useState(item ? item.categoria : "seguro");
-  const [subtipo, setSubtipo] = useState(item ? item.subtipo : SUBTIPOS.seguro[0].key);
+  const [categoria, setCategoria] = useState(catInicial);
+  const [subtipo, setSubtipo] = useState(item ? item.subtipo : (SUBTIPOS[catInicial] || SUBTIPOS.seguro)[0].key);
   const [horarioSolicitado, setHorarioSolicitado] = useState(item ? item.horarioSolicitado : "");
+  const [dataSolicitacao, setDataSolicitacao] = useState(
+    item ? (item.dataSolicitacao || (item.criadoEm || "").slice(0, 10)) : todayStr()
+  );
   const [dataAgendamento, setDataAgendamento] = useState(item ? item.dataAgendamento : "");
   const [horarioAgendamento, setHorarioAgendamento] = useState(item ? item.horarioAgendamento : "");
   const [valor, setValor] = useState(item && item.valor != null ? String(item.valor) : "");
@@ -477,7 +518,7 @@ function AtendimentoForm({ item, onSubmit, submitLabel, comissaoInicial }) {
     if (!cliente.trim()) return;
     onSubmit({
       cliente: cliente.trim(), categoria, subtipo,
-      horarioSolicitado, dataAgendamento, horarioAgendamento,
+      horarioSolicitado, dataSolicitacao, dataAgendamento, horarioAgendamento,
       valor: valor ? parseFloat(valor) : null,
       comissao: categoria === "seguro" && comissao ? comissaoNum : null,
       valorComissao: categoria === "seguro" ? valorComissao : null,
@@ -496,9 +537,14 @@ function AtendimentoForm({ item, onSubmit, submitLabel, comissaoInicial }) {
         <input style={inputStyle} value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="Nome do cliente" autoFocus />
       </Field>
       <CategoriaSubtipoPicker categoria={categoria} setCategoria={setCategoria} subtipo={subtipo} setSubtipo={setSubtipo} />
-      <Field label="Horário em que o cliente solicitou">
-        <input type="time" style={inputStyle} value={horarioSolicitado} onChange={(e) => setHorarioSolicitado(e.target.value)} />
-      </Field>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Data em que o cliente solicitou">
+          <input type="date" style={inputStyle} value={dataSolicitacao} onChange={(e) => setDataSolicitacao(e.target.value)} />
+        </Field>
+        <Field label="Horário">
+          <input type="time" style={inputStyle} value={horarioSolicitado} onChange={(e) => setHorarioSolicitado(e.target.value)} />
+        </Field>
+      </div>
 
       <div className="rounded-xl p-3 mb-3" style={{ backgroundColor: "#F2ECE2" }}>
         <div className="flex items-center gap-1.5 mb-2">
@@ -621,13 +667,15 @@ function AtendimentoForm({ item, onSubmit, submitLabel, comissaoInicial }) {
   );
 }
 
-function AddAtendimentoModal({ onClose, onSave }) {
+function AddAtendimentoModal({ onClose, onSave, categoriaInicial }) {
   return (
     <Modal title="Novo atendimento" onClose={onClose}>
       <AtendimentoForm
+        categoriaInicial={categoriaInicial}
         submitLabel="Adicionar atendimento"
         onSubmit={(data) => {
-          onSave({ id: uid(), ...data, status: "iniciado", criadoEm: new Date().toISOString() });
+          const inicial = data.categoria === "certificado" ? "solicitado" : "iniciado";
+          onSave({ id: uid(), ...data, status: inicial, criadoEm: new Date().toISOString() });
           onClose();
         }}
       />
@@ -677,11 +725,23 @@ function AtendimentoCard({ item, onMove, onDelete, onEdit, comissaoPct }) {
                 style={{ backgroundColor: COLORS.slate + "1A", color: COLORS.slate }}>{item.seguradora}</span>
         )}
       </div>
-      {item.horarioSolicitado && (
-        <div className="flex items-center gap-1 text-xs mb-1" style={{ color: COLORS.inkSoft }}>
-          <Clock size={12} color={COLORS.inkSoft} /> Solicitado às {item.horarioSolicitado}
-        </div>
-      )}
+      {(item.dataSolicitacao || item.horarioSolicitado) && (() => {
+        const dSol = item.dataSolicitacao || (item.criadoEm || "").slice(0, 10);
+        const dias = estaConcluido(item) ? null : diasCorridos(dSol);
+        return (
+          <div className="flex items-center gap-1 text-xs mb-1 flex-wrap" style={{ color: COLORS.inkSoft }}>
+            <Clock size={12} color={COLORS.inkSoft} />
+            Solicitado {dSol ? fmtDatePt(dSol) : ""}{item.horarioSolicitado ? ` às ${item.horarioSolicitado}` : ""}
+            {dias != null && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold"
+                    style={{ backgroundColor: dias >= 7 ? COLORS.red + "1A" : COLORS.camel + "26",
+                             color: dias >= 7 ? COLORS.red : COLORS.camelDeep }}>
+                {dias === 0 ? "hoje" : dias === 1 ? "1 dia" : `${dias} dias`}
+              </span>
+            )}
+          </div>
+        );
+      })()}
       {item.dataAgendamento && (
         <div className="flex items-center gap-1 text-xs mb-1" style={{ color: COLORS.camelDeep }}>
           <CalendarPlus size={12} color={COLORS.camelDeep} /> Agendado {fmtDatePt(item.dataAgendamento)}{item.horarioAgendamento ? ` às ${item.horarioAgendamento}` : ""}
@@ -705,10 +765,10 @@ function AtendimentoCard({ item, onMove, onDelete, onEdit, comissaoPct }) {
       )}
       {item.notas && <p className="text-xs mt-1 mb-2" style={{ color: COLORS.inkSoft }}>{item.notas}</p>}
       <div className="flex items-center gap-1.5 mt-2">
-        <select value={item.status} onChange={(e) => onMove(item.id, e.target.value)}
+        <select value={statusDoItem(item)} onChange={(e) => onMove(item.id, e.target.value)}
                 className="flex-1 text-xs py-1.5 px-2 rounded-lg"
                 style={{ border: `1px solid ${COLORS.line}`, color: COLORS.ink, backgroundColor: "#FDFBF8" }}>
-          {STATUSES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+          {statusesDe(item.categoria).map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
         </select>
         <button onClick={() => onDelete(item.id)} className="p-1.5 rounded-lg hover:bg-black/5">
           <Trash2 size={14} color={COLORS.inkSoft} />
@@ -731,24 +791,35 @@ function KanbanBoard({ atendimentos, onAdd, onMove, onDelete, onEdit, clientes, 
   const [showAdd, setShowAdd] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [showFiltros, setShowFiltros] = useState(false);
-  const [fCategoria, setFCategoria] = useState(null);
+  const [aba, setAba] = useState("seguro");
   const [fSubtipo, setFSubtipo] = useState(null);
   const [fNome, setFNome] = useState("");
   const [fData, setFData] = useState("");
   const [fMesAno, setFMesAno] = useState("");
   const today = todayStr();
-  const hojeCount = atendimentos.filter((a) => (a.criadoEm || "").slice(0, 10) === today).length;
+
+  // Cada aba mostra só a sua categoria — seguro e certificado têm fluxos diferentes.
+  // A aba "Outros" só aparece se existir algum atendimento assim, para nada sumir da tela.
+  const temOutros = atendimentos.some((a) => a.categoria === "outros");
+  const abas = [
+    { key: "seguro", label: "Seguros" },
+    { key: "certificado", label: "Certificados" },
+  ].concat(temOutros ? [{ key: "outros", label: "Outros" }] : []);
+  const abaAtual = abas.some((t) => t.key === aba) ? aba : "seguro";
+
+  const daAba = atendimentos.filter((a) => a.categoria === abaAtual);
+  const hojeCount = daAba.filter((a) => (a.criadoEm || "").slice(0, 10) === today).length;
 
   // Só os atendimentos do mês selecionado no cabeçalho
-  let filtrados = atendimentos.filter((a) => (a.criadoEm || "").slice(0, 7) === mesKanban);
-  if (fCategoria) filtrados = filtrados.filter((a) => a.categoria === fCategoria);
+  let filtrados = daAba.filter((a) => (a.criadoEm || "").slice(0, 7) === mesKanban);
   if (fSubtipo) filtrados = filtrados.filter((a) => a.subtipo === fSubtipo);
   if (fNome.trim()) filtrados = filtrados.filter((a) => a.cliente.toLowerCase().includes(fNome.trim().toLowerCase()));
   if (fData) filtrados = filtrados.filter((a) => (a.criadoEm || "").slice(0, 10) === fData);
   if (fMesAno) filtrados = filtrados.filter((a) => (a.criadoEm || "").slice(0, 7) === fMesAno);
 
-  const filtrosAtivos = [fCategoria, fSubtipo, fNome.trim(), fData, fMesAno].filter(Boolean).length;
-  const limparFiltros = () => { setFCategoria(null); setFSubtipo(null); setFNome(""); setFData(""); setFMesAno(""); };
+  const filtrosAtivos = [fSubtipo, fNome.trim(), fData, fMesAno].filter(Boolean).length;
+  const limparFiltros = () => { setFSubtipo(null); setFNome(""); setFData(""); setFMesAno(""); };
+  const colunas = statusesDe(abaAtual);
 
   return (
     <div>
@@ -776,25 +847,25 @@ function KanbanBoard({ atendimentos, onAdd, onMove, onDelete, onEdit, clientes, 
         </div>
       </div>
 
+      <div className="flex gap-1 p-1 rounded-xl mb-4" style={{ backgroundColor: COLORS.burgundy }}>
+        {abas.map((t) => (
+          <button key={t.key} onClick={() => { setAba(t.key); setFSubtipo(null); }}
+                  className="flex-1 py-2 rounded-lg text-xs font-semibold"
+                  style={{ backgroundColor: abaAtual === t.key ? "#fff" : "transparent",
+                           color: abaAtual === t.key ? COLORS.burgundy : "rgba(255,255,255,0.75)" }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       {showFiltros && (
         <div className="rounded-2xl p-3 mb-4" style={{ backgroundColor: COLORS.panel, border: `1px solid ${COLORS.line}` }}>
-          <Field label="Categoria">
-            <div className="flex gap-2">
-              <Toggle ativo={fCategoria === null} cor={COLORS.inkSoft} onClick={() => { setFCategoria(null); setFSubtipo(null); }}>Todos</Toggle>
-              {CATEGORIAS.map((c) => (
-                <Toggle key={c.key} ativo={fCategoria === c.key} cor={c.color}
-                        onClick={() => { setFCategoria(c.key); setFSubtipo(null); }}>{c.label}</Toggle>
-              ))}
-            </div>
+          <Field label={abaAtual === "seguro" ? "Qual seguro?" : abaAtual === "certificado" ? "Qual certificado?" : "Qual tipo?"}>
+            <select style={inputStyle} value={fSubtipo || ""} onChange={(e) => setFSubtipo(e.target.value || null)}>
+              <option value="">Todos</option>
+              {(SUBTIPOS[abaAtual] || []).map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+            </select>
           </Field>
-          {fCategoria && (
-            <Field label={fCategoria === "seguro" ? "Qual seguro?" : fCategoria === "certificado" ? "Qual certificado?" : "Qual tipo?"}>
-              <select style={inputStyle} value={fSubtipo || ""} onChange={(e) => setFSubtipo(e.target.value || null)}>
-                <option value="">Todos</option>
-                {SUBTIPOS[fCategoria].map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
-              </select>
-            </Field>
-          )}
           <div className="grid grid-cols-2 gap-2">
             <Field label="Nome do cliente">
               <input style={inputStyle} value={fNome} onChange={(e) => setFNome(e.target.value)} placeholder="Buscar..." />
@@ -816,10 +887,10 @@ function KanbanBoard({ atendimentos, onAdd, onMove, onDelete, onEdit, clientes, 
       )}
 
       <div className="flex gap-3 overflow-x-auto pb-3">
-        {STATUSES.map((s) => {
-          const items = filtrados.filter((a) => a.status === s.key);
+        {colunas.map((s) => {
+          const items = filtrados.filter((a) => statusDoItem(a) === s.key);
           return (
-            <div key={s.key} className="flex-shrink-0" style={{ width: 250 }}>
+            <div key={s.key} className="flex-shrink-0" style={{ width: colunas.length <= 3 ? 300 : 250 }}>
               <div className="flex items-center gap-2 mb-2 px-1">
                 <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: s.color }} />
                 <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: COLORS.inkSoft }}>{s.label}</span>
@@ -834,7 +905,7 @@ function KanbanBoard({ atendimentos, onAdd, onMove, onDelete, onEdit, clientes, 
         })}
       </div>
 
-      {showAdd && <AddAtendimentoModal onClose={() => setShowAdd(false)} onSave={onAdd} />}
+      {showAdd && <AddAtendimentoModal categoriaInicial={abaAtual} onClose={() => setShowAdd(false)} onSave={onAdd} />}
       {editingItem && (
         <EditAtendimentoModal
           item={editingItem}
@@ -2254,7 +2325,8 @@ function BackupModal({ dados, onClose }) {
     { titulo: "Valor", valor: (a) => (a.valor != null ? a.valor.toFixed(2).replace(".", ",") : "") },
     { titulo: "Comissão (%)", valor: (a) => (a.comissao != null ? a.comissao : "") },
     { titulo: "Situação", valor: (a) => a.pagamento },
-    { titulo: "Status", valor: (a) => (STATUSES.find((s) => s.key === a.status) || {}).label || a.status },
+    { titulo: "Etapa", valor: (a) => statusLabel(a.categoria, statusDoItem(a)) },
+    { titulo: "Solicitado em", valor: (a) => fmtDatePt(a.dataSolicitacao || (a.criadoEm || "").slice(0, 10)) },
     { titulo: "Agendamento", valor: (a) => fmtDatePt(a.dataAgendamento) },
     { titulo: "Observações", valor: (a) => a.notas },
   ]), "text/csv");
