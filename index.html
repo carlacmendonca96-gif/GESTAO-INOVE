@@ -396,6 +396,7 @@ function mapConta(row) {
   return {
     id: row.id, nome: row.nome,
     saldoInicial: parseFloat(row.saldo_inicial) || 0,
+    tipo: row.tipo || "pf",
   };
 }
 function mapMovimentacao(row) {
@@ -1229,7 +1230,8 @@ function Card({ titulo, valor, cor, Icon, destaque, onClick, ativo }) {
 }
 
 function NegocioFinanceiro({ financeiro, onAdd, onEdit, onDelete, onMarcarPago,
-                             despesas, onAddDespesa, onEditDespesa, onDeleteDespesa }) {
+                             despesas, onAddDespesa, onEditDespesa, onDeleteDespesa,
+                             contas, movimentacoes, onAddConta, onDeleteConta, onAddMov, onDeleteMov }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [showAddGasto, setShowAddGasto] = useState(false);
@@ -1258,6 +1260,10 @@ function NegocioFinanceiro({ financeiro, onAdd, onEdit, onDelete, onMarcarPago,
   const totalGastosNegocio = gastosDoMes.reduce((s, d) => s + (d.valor || 0), 0);
 
   const lucro = totalRecebido - totalCusto - totalGastosNegocio;
+
+  // Contas da empresa (PJ) — saldo é informativo, não entra no cálculo do lucro
+  const contasPJ = (contas || []).filter((c) => c.tipo === "pj");
+  const totalContasPJ = contasPJ.reduce((s, c) => s + saldoDaConta(c, movimentacoes || []), 0);
 
   let visiveis = sorted;
   if (filtro === "pago") visiveis = sorted.filter((f) => f.pago);
@@ -1409,6 +1415,13 @@ function NegocioFinanceiro({ financeiro, onAdd, onEdit, onDelete, onMarcarPago,
             </button>
           </div>
         ))}
+      </div>
+
+      <div className="mt-6 pt-5" style={{ borderTop: `1px solid ${COLORS.line}` }}>
+        <ContasView contas={contasPJ} movimentacoes={movimentacoes || []}
+                    tipo="pj" titulo="Contas da empresa" tituloTotal="Total nas contas da empresa (PJ)"
+                    onAddConta={onAddConta} onDeleteConta={onDeleteConta}
+                    onAddMov={onAddMov} onDeleteMov={onDeleteMov} />
       </div>
 
       {showAdd && <AddFinanceModal onClose={() => setShowAdd(false)} onSave={onAdd} />}
@@ -1881,12 +1894,12 @@ function saldoDaConta(conta, movimentacoes) {
     .reduce((s, m) => s + (m.tipo === "saida" ? -(m.valor || 0) : (m.valor || 0)), conta.saldoInicial || 0);
 }
 
-function AddContaModal({ onClose, onSave }) {
+function AddContaModal({ onClose, onSave, tipo }) {
   const [nome, setNome] = useState("");
   const [saldo, setSaldo] = useState("");
   const submit = () => {
     if (!nome.trim()) return;
-    onSave({ id: uid(), nome: nome.trim(), saldoInicial: parseFloat(saldo) || 0 });
+    onSave({ id: uid(), nome: nome.trim(), saldoInicial: parseFloat(saldo) || 0, tipo: tipo || "pf" });
     onClose();
   };
   return (
@@ -1942,7 +1955,8 @@ function AddMovimentacaoModal({ conta, onClose, onSave }) {
   );
 }
 
-function ContasView({ contas, movimentacoes, onAddConta, onDeleteConta, onAddMov, onDeleteMov }) {
+function ContasView({ contas, movimentacoes, onAddConta, onDeleteConta, onAddMov, onDeleteMov,
+                      tipo, titulo, tituloTotal, mostrarTotal }) {
   const [showAddConta, setShowAddConta] = useState(false);
   const [movDaConta, setMovDaConta] = useState(null);
   const [aberta, setAberta] = useState(null);
@@ -1951,13 +1965,15 @@ function ContasView({ contas, movimentacoes, onAddConta, onDeleteConta, onAddMov
 
   return (
     <div>
-      <div className="rounded-2xl p-4 mb-4" style={{ backgroundColor: COLORS.burgundy }}>
-        <div className="text-xs mb-1" style={{ color: "#C9D6E8" }}>Total nas suas contas</div>
-        <div className="text-xl font-bold text-white" style={{ fontFamily: "ui-monospace, monospace" }}>{fmtMoney(totalGeral)}</div>
-      </div>
+      {mostrarTotal !== false && (
+        <div className="rounded-2xl p-4 mb-4" style={{ backgroundColor: COLORS.burgundy }}>
+          <div className="text-xs mb-1" style={{ color: "#C9D6E8" }}>{tituloTotal || "Total nas suas contas"}</div>
+          <div className="text-xl font-bold text-white" style={{ fontFamily: "ui-monospace, monospace" }}>{fmtMoney(totalGeral)}</div>
+        </div>
+      )}
 
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold" style={{ color: COLORS.ink }}>Suas contas</h3>
+        <h3 className="text-sm font-semibold" style={{ color: COLORS.ink }}>{titulo || "Suas contas"}</h3>
         <button onClick={() => setShowAddConta(true)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium"
                 style={{ backgroundColor: COLORS.camel + "1A", color: COLORS.camelDeep }}>
           <Plus size={13} color={COLORS.camelDeep} /> Nova conta
@@ -2027,7 +2043,7 @@ function ContasView({ contas, movimentacoes, onAddConta, onDeleteConta, onAddMov
         })}
       </div>
 
-      {showAddConta && <AddContaModal onClose={() => setShowAddConta(false)} onSave={onAddConta} />}
+      {showAddConta && <AddContaModal tipo={tipo} onClose={() => setShowAddConta(false)} onSave={onAddConta} />}
       {movDaConta && <AddMovimentacaoModal conta={movDaConta} onClose={() => setMovDaConta(null)} onSave={onAddMov} />}
     </div>
   );
@@ -2051,7 +2067,8 @@ function DespesasView({ despesas, onAdd, onEdit, onDelete, totalRecebidoNegocio,
   const totalAvulso = totalPorTipo("avulso");
   const totalFixa = totalPorTipo("fixa");
   const totalDespesas = totalCartaoEsteMes + totalAvulso + totalFixa;
-  const totalEmContas = (contas || []).reduce((s, c) => s + saldoDaConta(c, movimentacoes), 0);
+  const contasPF = (contas || []).filter((c) => (c.tipo || "pf") === "pf");
+  const totalEmContas = contasPF.reduce((s, c) => s + saldoDaConta(c, movimentacoes), 0);
   const sobra = totalEmContas + (aReceberNegocio || 0) - totalDespesas;
 
   const totalCartaoNoMes = (mk) => cartoes.reduce((s, ct) => s + comprasCartao
@@ -2139,7 +2156,8 @@ function DespesasView({ despesas, onAdd, onEdit, onDelete, totalRecebidoNegocio,
       </div>
 
       {subTab === "contas" && (
-        <ContasView contas={contas || []} movimentacoes={movimentacoes || []}
+        <ContasView contas={contasPF} movimentacoes={movimentacoes || []}
+                    tipo="pf" titulo="Suas contas pessoais" tituloTotal="Total nas suas contas (PF)"
                     onAddConta={onAddConta} onDeleteConta={onDeleteConta}
                     onAddMov={onAddMov} onDeleteMov={onDeleteMov} />
       )}
@@ -2232,7 +2250,9 @@ function FinanceView({ financeiro, onAddFinanceiro, onEditFinanceiro, onDeleteFi
       {subTab === "negocio" && (
         <NegocioFinanceiro financeiro={financeiro} onAdd={onAddFinanceiro} onEdit={onEditFinanceiro}
                             onDelete={onDeleteFinanceiro} onMarcarPago={onMarcarPago}
-                            despesas={despesas} onAddDespesa={onAddDespesa} onEditDespesa={onEditDespesa} onDeleteDespesa={onDeleteDespesa} />
+                            despesas={despesas} onAddDespesa={onAddDespesa} onEditDespesa={onEditDespesa} onDeleteDespesa={onDeleteDespesa}
+                            contas={contas} movimentacoes={movimentacoes} onAddConta={onAddConta} onDeleteConta={onDeleteConta}
+                            onAddMov={onAddMov} onDeleteMov={onDeleteMov} />
       )}
       {subTab === "pessoal" && (
         <DespesasView despesas={despesas} onAdd={onAddDespesa} onEdit={onEditDespesa} onDelete={onDeleteDespesa}
